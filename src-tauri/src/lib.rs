@@ -163,6 +163,23 @@ ALTER TABLE sessions ADD COLUMN archived_at DATETIME;
 CREATE INDEX IF NOT EXISTS idx_sessions_archived ON sessions(archived_at);
 "#,
         },
+        Migration {
+            version: 5,
+            description: "add_custom_and_claude_code_providers",
+            kind: MigrationKind::Up,
+            sql: r#"
+CREATE TABLE integrations_v5 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL CHECK (provider IN ('slack','github','jira','linear','anthropic','openai','openrouter','custom','claude-code')),
+  metadata TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO integrations_v5 SELECT * FROM integrations;
+DROP TABLE integrations;
+ALTER TABLE integrations_v5 RENAME TO integrations;
+"#,
+        },
     ]
 }
 
