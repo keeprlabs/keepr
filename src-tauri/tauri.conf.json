@@ -9,11 +9,6 @@
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
-  "plugins": {
-    "shell": {
-      "scope": [{ "name": "claude", "cmd": "claude", "args": true }]
-    }
-  },
   "app": {
     "windows": [
       {
