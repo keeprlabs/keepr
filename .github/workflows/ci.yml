@@ -15,7 +15,7 @@ jobs:
     name: typecheck + build + cargo check
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Node
         uses: actions/setup-node@v4
