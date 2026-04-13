@@ -1,0 +1,37 @@
+{
+  "name": "keepr",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b --noCheck && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "eval": "tsx evals/run.ts"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.0.1",
+    "@tauri-apps/plugin-fs": "^2.0.3",
+    "@tauri-apps/plugin-http": "^2.0.1",
+    "@tauri-apps/plugin-opener": "^2.2.2",
+    "@tauri-apps/plugin-shell": "^2.0.1",
+    "@tauri-apps/plugin-sql": "^2.0.1",
+    "@tauri-apps/plugin-store": "^2.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

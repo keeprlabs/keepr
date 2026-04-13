@@ -1,0 +1,98 @@
+{
+  "description": "Deliberately ambiguous signals. One PR has been open 5 days but has ongoing discussion, not neglect. One engineer asked two questions about a topic but also shipped a PR on it, so 'struggling with X' would be a false read. The model should resist reading morale into this week.",
+  "workflow": "team_pulse",
+  "time_range": {
+    "start": "2026-03-30T00:00:00Z",
+    "end": "2026-04-06T00:00:00Z"
+  },
+  "team": [
+    { "id": "tm_1", "display_name": "Priya Raman" },
+    { "id": "tm_2", "display_name": "Marcus Lee" },
+    { "id": "tm_3", "display_name": "Sarah Chen" },
+    { "id": "tm_4", "display_name": "Diego Alvarez" },
+    { "id": "tm_5", "display_name": "Jamie Park" }
+  ],
+  "buckets": {
+    "repo:acme/platform": [
+      {
+        "id": "ev_1",
+        "source": "github_pr",
+        "actor_id": "tm_2",
+        "timestamp": "2026-03-30T15:10:00Z",
+        "content": "PR #901: Migrate metrics pipeline from statsd to OpenTelemetry\n\nLarger RFC-style PR. Replaces the in-house statsd client with the OTel SDK. Includes a migration guide for service owners and a compatibility shim for the next two quarters."
+      },
+      {
+        "id": "ev_2",
+        "source": "github_review",
+        "actor_id": "tm_1",
+        "timestamp": "2026-03-31T13:40:00Z",
+        "content": "Review on #901 (commented): Big PR but well-organized. I left notes on the shim — I think we can simplify the tag-rewriting by using a resource detector instead. Would love your take."
+      },
+      {
+        "id": "ev_3",
+        "source": "github_review",
+        "actor_id": "tm_4",
+        "timestamp": "2026-04-01T17:22:00Z",
+        "content": "Review on #901 (commented): Agreed with Priya on the shim simplification. Also: how does this interact with the sampling config in config/otel.yaml? I couldn't tell from the PR description."
+      },
+      {
+        "id": "ev_4",
+        "source": "github_review",
+        "actor_id": "tm_2",
+        "timestamp": "2026-04-02T11:05:00Z",
+        "content": "Review on #901 (commented): Good point, Diego. Sampling is applied at the exporter layer, so the shim doesn't see it. I updated the PR description and added a section to the migration guide."
+      },
+      {
+        "id": "ev_5",
+        "source": "github_review",
+        "actor_id": "tm_1",
+        "timestamp": "2026-04-03T09:18:00Z",
+        "content": "Review on #901 (approved): The resource-detector change looks great. Merging hold for Diego's ack on the sampling thread."
+      },
+      {
+        "id": "ev_6",
+        "source": "github_pr",
+        "actor_id": "tm_5",
+        "timestamp": "2026-04-02T14:30:00Z",
+        "content": "PR #905: Wire up OTel tracing in the auth service\n\nFirst service to adopt the new OTel pipeline from #901. Adds 3 spans around the login path and verifies traces show up in the dev dashboard."
+      }
+    ],
+    "slack:eng-platform": [
+      {
+        "id": "ev_7",
+        "source": "slack_message",
+        "actor_id": "tm_5",
+        "timestamp": "2026-03-31T11:20:00Z",
+        "content": "#eng-platform: dumb question — when you add an OTel span, does it automatically get the service.name resource attribute or do you need to set it yourself?"
+      },
+      {
+        "id": "ev_8",
+        "source": "slack_message",
+        "actor_id": "tm_2",
+        "timestamp": "2026-03-31T11:25:00Z",
+        "content": "#eng-platform (thread): Not dumb. It's auto-populated if the SDK's resource detector runs, which is the default in the new pipeline. You only need to set it manually if you're using the raw exporter."
+      },
+      {
+        "id": "ev_9",
+        "source": "slack_message",
+        "actor_id": "tm_5",
+        "timestamp": "2026-04-01T15:45:00Z",
+        "content": "#eng-platform: follow-up: if I want to add a custom attribute to every span from my service, is that a processor or a resource? I keep getting confused about the difference."
+      },
+      {
+        "id": "ev_10",
+        "source": "slack_message",
+        "actor_id": "tm_2",
+        "timestamp": "2026-04-01T15:52:00Z",
+        "content": "#eng-platform (thread): Resources are per-service and static. Processors run per-span and can mutate. For 'custom attribute on every span' it could be either — resource is cheaper if the value doesn't change at runtime."
+      },
+      {
+        "id": "ev_11",
+        "source": "slack_message",
+        "actor_id": "tm_5",
+        "timestamp": "2026-04-02T10:11:00Z",
+        "content": "#eng-platform: ok, going with resource. Thanks. PR #905 is up for review whenever anyone has cycles."
+      }
+    ]
+  }
+}

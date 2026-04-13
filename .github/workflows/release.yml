@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS (.dmg)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-cargo-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for signing secrets
+        id: signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_ID" ] && [ -n "$APPLE_TEAM_ID" ] && [ -n "$APPLE_PASSWORD" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "Signing + notarization: ENABLED"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "Signing + notarization: SKIPPED (secrets not configured)"
+          fi
+
+      - name: Build Tauri app (signed + notarized)
+        if: steps.signing.outputs.signed == 'true'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Keepr ${{ github.ref_name }}"
+          releaseBody: |
+            See the changelog for details.
+
+            First launch on macOS: drag Keepr to Applications, then open normally.
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin
+
+      - name: Build Tauri app (unsigned)
+        if: steps.signing.outputs.signed == 'false'
+        uses: tauri-apps/tauri-action@v0
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Keepr ${{ github.ref_name }}"
+          releaseBody: |
+            **This build is unsigned.** First launch: right-click the app
+            icon, choose Open, then confirm the "unidentified developer"
+            dialog. After the first launch, it opens normally.
+
+            Signed and notarized builds will ship once the Apple Developer
+            enrollment clears. See `docs/signing.md`.
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin

@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+dist/
+dist-ssr/
+.pnpm-store/
+
+# Rust / Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/schemas/
+src-tauri/WixTools/
+*.dmg
+*.app
+*.app.tar.gz
+*.app.tar.gz.sig
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.cer
+*.certSigningRequest
+
+# Build artifacts
+*.log
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.js
+
+# SQLite — test and local scratch databases
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-journal
+
+# Local scratch
+tmp/
+scratch/
+.gstack/

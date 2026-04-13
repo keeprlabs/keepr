@@ -1,0 +1,54 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main Keepr window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-start-dragging",
+    "core:webview:default",
+    "core:app:default",
+    "core:path:default",
+    "core:event:default",
+    "core:menu:default",
+    "shell:allow-open",
+    "opener:default",
+    "opener:allow-open-url",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$APPDATA/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$HOME/Documents/**" },
+        { "path": "$TEMP/**" }
+      ]
+    },
+    "dialog:default",
+    "fs:default",
+    "fs:allow-home-read-recursive",
+    "fs:allow-home-write-recursive",
+    "fs:allow-document-read-recursive",
+    "fs:allow-document-write-recursive",
+    "fs:allow-app-read-recursive",
+    "fs:allow-app-write-recursive",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://api.anthropic.com/*" },
+        { "url": "https://api.openai.com/*" },
+        { "url": "https://openrouter.ai/*" },
+        { "url": "https://api.github.com/*" },
+        { "url": "https://github.com/login/*" },
+        { "url": "https://slack.com/api/*" },
+        { "url": "https://*.atlassian.net/*" },
+        { "url": "https://api.linear.app/*" }
+      ]
+    },
+    "sql:default",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-load",
+    "store:default"
+  ]
+}

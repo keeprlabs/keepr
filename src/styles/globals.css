@@ -1,0 +1,402 @@
+@import url("https://rsms.me/inter/inter.css");
+@import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;1,6..72,400&family=JetBrains+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas: #fafaf9;
+  --surface: #f4f3f0;
+  --sunken: #efeeea;
+  --ink: #0a0a0a;
+  --ink-soft: #1a1a1a;
+  --ink-muted: #6b6b68;
+  --ink-faint: #9a9a96;
+  --hairline: rgba(10, 10, 10, 0.08);
+  --accent: #2f3a4c;
+  --accent-soft: #e6e9ee;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-feature-settings: "cv11", "ss01", "ss03";
+  font-size: 14.5px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+/* A refined focus ring — subtle but unmistakable. */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--canvas), 0 0 0 3px rgba(47, 58, 76, 0.55);
+  border-radius: 5px;
+  transition: box-shadow 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+/* Inputs want a warmer ring on focus — just the ink, no halo. */
+input:focus-visible,
+textarea:focus-visible {
+  box-shadow: 0 0 0 1px var(--canvas), 0 0 0 2px rgba(10, 10, 10, 0.55);
+}
+
+/* Titlebar drag region for the frameless-ish window. */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Calm scrollbars. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(10, 10, 10, 0.1);
+  border-radius: 10px;
+  border: 2px solid var(--canvas);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(10, 10, 10, 0.18);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Typography primitives — real hierarchy. */
+.display-serif {
+  font-family: "Newsreader", "Charter", "Iowan Old Style", Georgia, serif;
+  font-weight: 400;
+  font-optical-sizing: auto;
+  letter-spacing: -0.015em;
+  font-variation-settings: "opsz" 36;
+}
+
+.mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-feature-settings: "calt", "liga" 0;
+}
+
+/* Reading flow for generated session markdown — the "beautifully set document".
+   Inspired by Notion: generous section headers with emoji glyphs, tight reading
+   column, real visual hierarchy. */
+.reading {
+  max-width: 680px;
+  margin: 0 auto;
+  color: var(--ink);
+}
+/* The LLM generates a h1 like "Team pulse — Apr 3 – Apr 10, 2026" which
+   is redundant with the compact metadata header the session reader renders
+   from structured session data. Hide it in the reading flow. */
+.reading h1 {
+  display: none;
+}
+.reading h2 {
+  font-family: "Newsreader", Georgia, serif;
+  font-weight: 500;
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  margin: 48px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-variation-settings: "opsz" 40;
+  text-transform: none;
+  /* A hairline above each section gives structure without heavy chrome. */
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+.reading h2:first-child {
+  margin-top: 36px;
+  padding-top: 0;
+  border-top: none;
+}
+/* Monochromatic outline icon beside the section label. Inherits ink
+   from the h2 but a shade lighter so the serif label remains the
+   primary reading target. */
+.reading h2 .sec-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--ink-muted);
+}
+.reading h2 .sec-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+.reading h2 .sec-label {
+  flex: 1;
+}
+.reading h3 {
+  font-family: "Inter", system-ui, sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  margin: 28px 0 8px;
+  color: var(--ink);
+}
+.reading p {
+  margin: 0 0 14px;
+  font-size: 15.5px;
+  line-height: 27px;
+  color: var(--ink-soft);
+}
+/* Tailwind's preflight strips list-style from ul/ol. Restore them
+   explicitly so bullets aren't collapsed into prose. */
+.reading ul {
+  list-style: none;
+  margin: 4px 0 20px;
+  padding-left: 0;
+}
+.reading ol {
+  list-style: decimal outside;
+  margin: 4px 0 20px;
+  padding-left: 26px;
+}
+.reading ul li {
+  position: relative;
+  margin: 10px 0;
+  padding-left: 26px;
+  font-size: 15.5px;
+  line-height: 26px;
+  color: var(--ink-soft);
+}
+.reading ul li::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 11px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--ink-muted);
+}
+.reading ol li {
+  margin: 10px 0;
+  font-size: 15.5px;
+  line-height: 26px;
+  color: var(--ink-soft);
+}
+.reading ol li::marker {
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+/* Nested lists get a lighter indent + a smaller marker. */
+.reading li > ul {
+  margin: 6px 0 6px;
+}
+.reading li > ul li::before {
+  background: var(--ink-faint);
+  width: 3px;
+  height: 3px;
+  top: 12px;
+}
+.reading a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(47, 58, 76, 0.25);
+}
+.reading a:hover {
+  border-bottom-color: var(--accent);
+}
+.reading code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px;
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.reading hr {
+  border: none;
+  border-top: 1px solid var(--hairline);
+  margin: 36px 0;
+}
+
+/* Citation pill — a dignified superscript numeral. Tiny by default; the
+   page breathes around it. Expands on hover into a confident chip. */
+sup.cite,
+.cite {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  margin: 0 1px 0 1px;
+  font-family: "Inter", system-ui, sans-serif;
+  font-feature-settings: "tnum";
+  font-size: 9.5px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ink-muted);
+  background: transparent;
+  border: 1px solid rgba(10, 10, 10, 0.14);
+  border-radius: 999px;
+  /* <sup> already nudges the baseline; keep a hair of extra lift. */
+  vertical-align: baseline;
+  position: relative;
+  top: -0.4em;
+  cursor: pointer;
+  transition: color 180ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    background 180ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    border-color 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.cite:hover {
+  color: var(--ink);
+  border-color: rgba(10, 10, 10, 0.35);
+  background: var(--surface);
+}
+.cite.active {
+  color: var(--canvas);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+.cite.dangling {
+  color: var(--ink-faint);
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+/* Quiet skeleton / progress shimmer — alive but serene. */
+@keyframes breathe {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.85; }
+}
+.breathing {
+  animation: breathe 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rise {
+  animation: rise 220ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/* Command palette sheet. */
+.sheet {
+  background: var(--canvas);
+  border: 1px solid rgba(10, 10, 10, 0.09);
+  box-shadow:
+    0 1px 2px rgba(10, 10, 10, 0.04),
+    0 24px 64px -8px rgba(10, 10, 10, 0.18),
+    0 2px 8px rgba(10, 10, 10, 0.05);
+  border-radius: 16px;
+}
+
+/* Hairline dividers. */
+.hair-b { border-bottom: 1px solid var(--hairline); }
+.hair-t { border-top: 1px solid var(--hairline); }
+.hair-r { border-right: 1px solid var(--hairline); }
+.hair-l { border-left: 1px solid var(--hairline); }
+
+/* Keyboard kbd — a quiet chip. */
+kbd.kbd,
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ink-muted);
+  background: var(--canvas);
+  border: 1px solid rgba(10, 10, 10, 0.1);
+  border-radius: 4px;
+  line-height: 1;
+}
+
+/* Utility: a hover-able row with a quiet tint, used in lists. */
+.row-hover {
+  transition: background-color 180ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    color 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.row-hover:hover {
+  background: rgba(10, 10, 10, 0.035);
+}
+
+/* A confident serif display override — used for big page titles. */
+.display-serif-lg {
+  font-family: "Newsreader", "Charter", "Iowan Old Style", Georgia, serif;
+  font-weight: 420;
+  font-optical-sizing: auto;
+  font-variation-settings: "opsz" 60;
+  letter-spacing: -0.022em;
+}
+
+/* Subdued animation for the progress bar's indeterminate slide. */
+@keyframes slide-calm {
+  0% { transform: translateX(-60%); }
+  100% { transform: translateX(260%); }
+}
+.slide-calm {
+  animation: slide-calm 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Selection — keep it in the monochromatic ladder. */
+::selection {
+  background: rgba(47, 58, 76, 0.18);
+  color: var(--ink);
+}
+
+/* Print / PDF export: strip all chrome (titlebar, sidebar, evidence panel,
+   action row, status bar) and let just the reading flow print. The
+   macOS system print dialog can export to PDF from here. */
+@media print {
+  html, body, #root {
+    background: #ffffff !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  body { overflow: visible !important; }
+  .drag-region,
+  aside,
+  .hair-t,
+  [aria-label="Toggle sidebar"],
+  .sheet,
+  .no-print { display: none !important; }
+  main { overflow: visible !important; }
+  .reading {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .reading h2 {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .reading p, .reading li {
+    orphans: 3;
+    widows: 3;
+  }
+  /* Citations render as plain numerals in print — no ink fills. */
+  .cite, sup.cite {
+    color: var(--ink-muted) !important;
+    background: transparent !important;
+    border: none !important;
+    top: -0.5em;
+  }
+}

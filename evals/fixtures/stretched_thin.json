@@ -1,0 +1,121 @@
+{
+  "description": "Sarah (tm_3) is clearly carrying an outsized load this week: 3 authored PRs, 4 substantive reviews, led the incident response, and was on-call. The pulse should flag her under 'People stretched thin' with multiple citations. The 1:1 prep (with tm_3 as target) should show wins and questions without fabricating feelings.",
+  "workflow": "team_pulse",
+  "time_range": {
+    "start": "2026-03-30T00:00:00Z",
+    "end": "2026-04-06T00:00:00Z"
+  },
+  "team": [
+    { "id": "tm_1", "display_name": "Priya Raman" },
+    { "id": "tm_2", "display_name": "Marcus Lee" },
+    { "id": "tm_3", "display_name": "Sarah Chen" },
+    { "id": "tm_4", "display_name": "Diego Alvarez" },
+    { "id": "tm_5", "display_name": "Jamie Park" }
+  ],
+  "buckets": {
+    "repo:acme/search": [
+      {
+        "id": "ev_1",
+        "source": "github_pr",
+        "actor_id": "tm_3",
+        "timestamp": "2026-03-30T18:14:00Z",
+        "content": "PR #1203: Switch query planner to cost-based reordering\n\nReplaces the hand-tuned reorder heuristics with a simple cost model derived from table statistics. Benchmarks show 18% p95 latency improvement on the top 20 query shapes."
+      },
+      {
+        "id": "ev_2",
+        "source": "github_pr",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-01T22:03:00Z",
+        "content": "PR #1208: Add a slow-query log sink\n\nWrites every query over 500ms to a dedicated sink so we can triage without sifting the main logs. Pulled out of the planner PR to keep the diff small."
+      },
+      {
+        "id": "ev_3",
+        "source": "github_pr",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-04T23:41:00Z",
+        "content": "PR #1215: Hotfix: revert cost-based reorder for prefix-match queries\n\nProduction showed a regression on prefix-match queries we didn't see in the benchmark suite. Reverts that one code path while we investigate."
+      },
+      {
+        "id": "ev_4",
+        "source": "github_review",
+        "actor_id": "tm_3",
+        "timestamp": "2026-03-31T10:15:00Z",
+        "content": "Review on #1199 (Marcus's PR, requested changes): The locking scheme here races with the sweeper. I drew it out and I think we need a second mutex on the shard index. Happy to pair on this tomorrow."
+      },
+      {
+        "id": "ev_5",
+        "source": "github_review",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-01T11:30:00Z",
+        "content": "Review on #1201 (Diego's PR, commented): Left 12 comments mostly on error handling — the current code swallows the context-cancelled case in 3 places. See inline."
+      },
+      {
+        "id": "ev_6",
+        "source": "github_review",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-02T16:45:00Z",
+        "content": "Review on #1205 (Jamie's PR, approved with comments): Approach is right. Two nits on the metric names — please use snake_case to match the rest of the codebase."
+      },
+      {
+        "id": "ev_7",
+        "source": "github_review",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-03T09:02:00Z",
+        "content": "Review on #1210 (Priya's PR, approved): Clean. Ship it."
+      }
+    ],
+    "slack:eng-search": [
+      {
+        "id": "ev_8",
+        "source": "slack_message",
+        "actor_id": "tm_3",
+        "timestamp": "2026-03-31T08:20:00Z",
+        "content": "#eng-search: has anyone seen cost-based planners regress on prefix-match in practice? I'm seeing it in the bench suite for #1203 and I'm not sure if it's my cost model or a query-shape thing."
+      },
+      {
+        "id": "ev_9",
+        "source": "slack_message",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-02T19:14:00Z",
+        "content": "#eng-search: FYI I'm on-call this week so may be slow on PR reviews in the back half — ping me directly if you're blocked."
+      },
+      {
+        "id": "ev_10",
+        "source": "slack_message",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-04T21:18:00Z",
+        "content": "#eng-search: hotfix #1215 is rolling out now. This is the prefix-match regression from the planner change. I'll write up what I learned about the cost model next week."
+      }
+    ],
+    "slack:prod-alerts": [
+      {
+        "id": "ev_11",
+        "source": "slack_message",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-04T20:12:00Z",
+        "content": "#prod-alerts: taking point on the search latency alert. P95 on /search jumped from 180ms to 620ms starting around 19:45. Investigating."
+      },
+      {
+        "id": "ev_12",
+        "source": "slack_message",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-04T20:58:00Z",
+        "content": "#prod-alerts (thread): confirmed — it's the prefix-match query shape under the new planner. Prepping a revert PR now."
+      },
+      {
+        "id": "ev_13",
+        "source": "slack_message",
+        "actor_id": "tm_3",
+        "timestamp": "2026-04-04T23:55:00Z",
+        "content": "#prod-alerts: hotfix deployed, p95 back to ~190ms. Will write the postmortem tomorrow."
+      },
+      {
+        "id": "ev_14",
+        "source": "slack_message",
+        "actor_id": "tm_1",
+        "timestamp": "2026-04-04T20:20:00Z",
+        "content": "#prod-alerts (thread): thanks Sarah — I'm around if you need a second pair of eyes."
+      }
+    ]
+  }
+}

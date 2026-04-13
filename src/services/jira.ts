@@ -1,0 +1,178 @@
+// Jira Cloud — BYO API token model. User provides their Atlassian email +
+// API token (generated at id.atlassian.com/manage-profile/security/api-tokens).
+// We use Basic auth with email:token, same as Jira's official docs recommend.
+
+import { fetch } from "@tauri-apps/plugin-http";
+import { SECRET_KEYS, getSecret } from "./secrets";
+import { getConfig } from "./db";
+import { getFetchCursor, setFetchCursor } from "./db";
+
+async function jiraHeaders(): Promise<Record<string, string>> {
+  const email = await getSecret(SECRET_KEYS.jiraEmail);
+  const token = await getSecret(SECRET_KEYS.jiraToken);
+  if (!email || !token) throw new Error("No Jira credentials configured");
+  const encoded = btoa(`${email}:${token}`);
+  return {
+    Authorization: `Basic ${encoded}`,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  };
+}
+
+async function jiraBaseUrl(): Promise<string> {
+  const cfg = await getConfig();
+  if (!cfg.jira_cloud_url) throw new Error("No Jira Cloud URL configured");
+  // Normalize: strip trailing slash
+  return cfg.jira_cloud_url.replace(/\/+$/, "");
+}
+
+async function jira<T>(path: string): Promise<T> {
+  const base = await jiraBaseUrl();
+  const headers = await jiraHeaders();
+  const res = await fetch(`${base}${path}`, { headers });
+  if (!res.ok) {
+    throw new Error(`Jira ${path}: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as T;
+}
+
+// ---- Auth test ------------------------------------------------------------
+
+export async function testConnection(): Promise<{ displayName: string }> {
+  const data = await jira<{ displayName: string }>("/rest/api/3/myself");
+  return { displayName: data.displayName };
+}
+
+// ---- Projects -------------------------------------------------------------
+
+export interface JiraProjectRemote {
+  id: string;
+  key: string;
+  name: string;
+}
+
+export async function listProjects(): Promise<JiraProjectRemote[]> {
+  const data = await jira<{ values: JiraProjectRemote[] }>(
+    "/rest/api/3/project/search?maxResults=50&orderBy=name"
+  );
+  return data.values || [];
+}
+
+// ---- Fetch for pipeline ---------------------------------------------------
+
+export interface FetchedJiraIssue {
+  source_id: string;
+  url: string;
+  key: string;
+  summary: string;
+  description: string;
+  status: string;
+  assignee: string | null;
+  reporter: string | null;
+  created: string;
+  updated: string;
+  comments: FetchedJiraComment[];
+}
+
+export interface FetchedJiraComment {
+  source_id: string;
+  url: string;
+  author: string | null;
+  body: string;
+  created: string;
+}
+
+export async function fetchProjectActivity(
+  projectKey: string,
+  sinceIso: string,
+  opts: { forceRefresh?: boolean } = {}
+): Promise<FetchedJiraIssue[]> {
+  const email = await getSecret(SECRET_KEYS.jiraEmail);
+  const token = await getSecret(SECRET_KEYS.jiraToken);
+  if (!email || !token) throw new Error("No Jira credentials");
+
+  const cacheKey = `project:${projectKey}`;
+  const cursor = opts.forceRefresh ? null : await getFetchCursor("jira", cacheKey);
+  const effectiveSince = cursor && cursor > sinceIso ? cursor : sinceIso;
+
+  // JQL: issues in the project updated since the effective time
+  const sinceDate = effectiveSince.split("T")[0];
+  const jql = encodeURIComponent(
+    `project = "${projectKey}" AND updated >= "${sinceDate}" ORDER BY updated DESC`
+  );
+
+  const data = await jira<{
+    issues: Array<{
+      id: string;
+      key: string;
+      self: string;
+      fields: {
+        summary: string;
+        description: any;
+        status: { name: string };
+        assignee: { displayName: string; accountId: string } | null;
+        reporter: { displayName: string; accountId: string } | null;
+        created: string;
+        updated: string;
+        comment?: { comments: Array<{
+          id: string;
+          author: { displayName: string; accountId: string };
+          body: any;
+          created: string;
+        }> };
+      };
+    }>;
+  }>(`/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,description,status,assignee,reporter,created,updated,comment`);
+
+  const base = await jiraBaseUrl();
+  const out: FetchedJiraIssue[] = [];
+
+  for (const issue of data.issues || []) {
+    if (out.length >= 200) break;
+
+    const descText = extractJiraText(issue.fields.description);
+    const issueUrl = `${base}/browse/${issue.key}`;
+
+    const comments: FetchedJiraComment[] = [];
+    for (const c of issue.fields.comment?.comments || []) {
+      const bodyText = extractJiraText(c.body);
+      if (!bodyText.trim()) continue;
+      comments.push({
+        source_id: `${issue.key}:comment/${c.id}`,
+        url: `${issueUrl}?focusedId=${c.id}`,
+        author: c.author?.displayName ?? null,
+        body: bodyText.slice(0, 800),
+        created: c.created,
+      });
+    }
+
+    out.push({
+      source_id: issue.key,
+      url: issueUrl,
+      key: issue.key,
+      summary: issue.fields.summary,
+      description: descText.slice(0, 1200),
+      status: issue.fields.status?.name ?? "Unknown",
+      assignee: issue.fields.assignee?.displayName ?? null,
+      reporter: issue.fields.reporter?.displayName ?? null,
+      created: issue.fields.created,
+      updated: issue.fields.updated,
+      comments,
+    });
+  }
+
+  await setFetchCursor("jira", cacheKey, new Date().toISOString());
+  return out;
+}
+
+// Jira Cloud API v3 returns Atlassian Document Format (ADF) JSON for
+// description and comment bodies. We extract plain text recursively.
+function extractJiraText(adf: any): string {
+  if (!adf) return "";
+  if (typeof adf === "string") return adf;
+  if (adf.type === "text") return adf.text || "";
+  if (Array.isArray(adf.content)) {
+    return adf.content.map(extractJiraText).join(" ");
+  }
+  return "";
+}

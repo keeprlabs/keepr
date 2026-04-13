@@ -1,0 +1,26 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="630" fill="#FAFAF9"/>
+    <g transform="translate(350, 215) scale(2)">
+      
+  <!-- Diamond/Key shape on left -->
+  <path d="M15 50 L25 40 L35 50 L25 60 Z" fill="#1A1A1A"/>
+
+  <!-- Vertical line of K -->
+  <rect x="45" y="25" width="4" height="50" fill="#1A1A1A"/>
+
+  <!-- Upper diagonal of K -->
+  <path d="M49 50 L49 46 L70 25 L74 25 L74 29 L53 50 Z" fill="#1A1A1A"/>
+
+  <!-- Lower diagonal of K -->
+  <path d="M53 50 L74 71 L74 75 L70 75 L49 54 L49 50 Z" fill="#1A1A1A"/>
+
+  <!-- Connection from diamond to K -->
+  <rect x="35" y="48" width="10" height="4" fill="#1A1A1A"/>
+
+
+    </g>
+    
+  <text x="700" y="350" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="80" font-weight="600" fill="#1A1A1A" text-anchor="start">Keepr</text>
+
+
+  </svg>

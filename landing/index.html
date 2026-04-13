@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <meta property="og:image" content="/og-image-1200x630.png" />
+    <meta property="og:title" content="Keepr — an AI chief of staff for engineering managers" />
+    <meta property="og:description" content="Keepr runs locally on your laptop — your Slack data never touches a middleman server." />
+    <title>Keepr — an AI chief of staff for engineering managers</title>
+    <meta
+      name="description"
+      content="Keepr is an AI chief of staff for engineering managers. It runs locally on your laptop — your Slack data never touches a middleman server."
+    />
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <style>
+      :root {
+        --bg: #fafaf9;
+        --ink: #141413;
+        --ink-soft: #3a3a38;
+        --ink-mute: #706f6b;
+        --rule: #e7e5e0;
+        --accent: #3d5a80;
+        --max: 680px;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+        font-feature-settings: "cv11", "ss01", "ss03";
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+      body {
+        font-size: 17px;
+        line-height: 1.55;
+        letter-spacing: -0.005em;
+      }
+      main {
+        max-width: var(--max);
+        margin: 0 auto;
+        padding: 96px 32px 128px;
+      }
+      header {
+        max-width: var(--max);
+        margin: 0 auto;
+        padding: 32px 32px 0;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+      }
+      .wordmark {
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--ink);
+      }
+      .nav {
+        font-size: 14px;
+        color: var(--ink-mute);
+      }
+      .nav a {
+        color: var(--ink-mute);
+        text-decoration: none;
+        margin-left: 20px;
+      }
+      .nav a:hover { color: var(--ink); }
+      h1 {
+        font-size: 44px;
+        line-height: 1.1;
+        letter-spacing: -0.025em;
+        font-weight: 600;
+        margin: 0 0 24px;
+        color: var(--ink);
+      }
+      h2 {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--ink-mute);
+        font-weight: 500;
+        margin: 72px 0 20px;
+      }
+      p {
+        margin: 0 0 18px;
+        color: var(--ink-soft);
+        max-width: 60ch;
+      }
+      .lede {
+        font-size: 20px;
+        line-height: 1.5;
+        color: var(--ink);
+        margin-bottom: 40px;
+      }
+      .lede em {
+        font-style: normal;
+        color: var(--accent);
+      }
+      a.cta {
+        display: inline-block;
+        background: var(--ink);
+        color: var(--bg);
+        text-decoration: none;
+        font-size: 15px;
+        font-weight: 500;
+        letter-spacing: -0.005em;
+        padding: 14px 22px;
+        border: 1px solid var(--ink);
+        transition: background 120ms ease;
+      }
+      a.cta:hover {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+      a.cta .meta {
+        color: rgba(250, 250, 249, 0.6);
+        font-weight: 400;
+        margin-left: 10px;
+      }
+      .aside {
+        font-size: 14px;
+        color: var(--ink-mute);
+        margin-top: 14px;
+      }
+      .rule {
+        border: 0;
+        border-top: 1px solid var(--rule);
+        margin: 72px 0 0;
+      }
+      ol.steps {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        counter-reset: step;
+      }
+      ol.steps li {
+        counter-increment: step;
+        padding: 20px 0;
+        border-top: 1px solid var(--rule);
+        display: grid;
+        grid-template-columns: 36px 1fr;
+        gap: 16px;
+      }
+      ol.steps li:last-child { border-bottom: 1px solid var(--rule); }
+      ol.steps li::before {
+        content: counter(step, decimal-leading-zero);
+        font-variant-numeric: tabular-nums;
+        font-size: 13px;
+        color: var(--ink-mute);
+        padding-top: 2px;
+      }
+      ol.steps strong {
+        display: block;
+        color: var(--ink);
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      ol.steps span {
+        color: var(--ink-soft);
+        font-size: 15px;
+      }
+      .why p {
+        max-width: 62ch;
+      }
+      .why strong {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .privacy {
+        background: transparent;
+        border: 1px solid var(--rule);
+        padding: 24px 28px;
+        margin-top: 24px;
+      }
+      .privacy p {
+        margin: 0 0 12px;
+        font-size: 15px;
+      }
+      .privacy p:last-child { margin-bottom: 0; }
+      .privacy .honest {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      footer {
+        max-width: var(--max);
+        margin: 0 auto;
+        padding: 40px 32px 64px;
+        font-size: 13px;
+        color: var(--ink-mute);
+        border-top: 1px solid var(--rule);
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+      footer a {
+        color: var(--ink-mute);
+        text-decoration: none;
+        margin-left: 18px;
+      }
+      footer a:hover { color: var(--ink); }
+      footer a:first-child { margin-left: 0; }
+      @media (max-width: 560px) {
+        main { padding: 64px 24px 96px; }
+        header { padding: 24px 24px 0; }
+        footer { padding: 32px 24px 48px; }
+        h1 { font-size: 34px; }
+        .lede { font-size: 18px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="wordmark.svg" alt="Keepr" style="height: 22px;" />
+      <nav class="nav">
+        <a href="https://github.com/keepr/keepr">GitHub</a>
+        <a href="https://github.com/keepr/keepr/blob/main/PRIVACY.md">Privacy</a>
+      </nav>
+    </header>
+
+    <main>
+      <h1>An AI chief of staff for engineering managers.</h1>
+      <p class="lede">
+        Keepr runs on your laptop and turns a week of Slack and GitHub exhaust
+        into a cited team pulse or 1:1 prep in about a minute.
+        <em>Your data never touches a middleman server.</em>
+      </p>
+
+      <a class="cta" href="#download">Download for macOS<span class="meta">Apple silicon · v1</span></a>
+      <p class="aside">Unsigned build for early users. See install notes below.</p>
+
+      <h2>Why local-first</h2>
+      <section class="why">
+        <p>
+          Most tools in this category pipe your Slack and GitHub history through
+          a vendor's cloud. Keepr doesn't. There is no Keepr backend. There is no
+          Keepr database. There is no account to create.
+        </p>
+        <p>
+          The app calls Slack and GitHub directly using your credentials, and
+          sends the pruned evidence to the LLM provider you choose. That's two
+          destinations instead of three. No middleman. No data pooling. No
+          SaaS breach exposure.
+        </p>
+        <p>
+          <strong>Honest trade-off:</strong> the LLM provider still sees raw
+          message content. If your company forbids sending Slack messages to
+          Anthropic or OpenAI, Keepr can't help you in v1. Read the privacy page
+          before you connect a real work Slack.
+        </p>
+      </section>
+
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li>
+          <div>
+            <strong>Connect your sources.</strong>
+            <span>Paste an LLM API key, install a tiny Slack app, and hand over a GitHub token. Under seven minutes, end to end.</span>
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Press ⌘K and run a workflow.</strong>
+            <span>Team pulse for the Monday read. A team member's name for 1:1 prep. Output is written as plain markdown you can grep, commit, or open in Obsidian.</span>
+          </div>
+        </li>
+        <li>
+          <div>
+            <strong>Keepr remembers, locally.</strong>
+            <span>Observed facts accumulate in a memory directory on your disk. Next session is better than the last. Delete the folder and the memory is gone.</span>
+          </div>
+        </li>
+      </ol>
+
+      <h2>Privacy posture</h2>
+      <div class="privacy">
+        <p class="honest">No servers. No accounts. No telemetry.</p>
+        <p>
+          Keepr sends your content to exactly two places: Slack and GitHub (the
+          original sources), and the LLM provider you picked. Nothing else.
+          Nothing to Keepr. There is no Keepr to send it to.
+        </p>
+        <p>
+          Full details — including what local-first does and does not buy you —
+          live in <a href="https://github.com/keepr/keepr/blob/main/PRIVACY.md" style="color: var(--accent);">PRIVACY.md</a>.
+        </p>
+      </div>
+
+      <h2 id="download">Download</h2>
+      <p>
+        v1 is macOS only (Apple silicon). Windows and Linux ship in v1.5.
+      </p>
+      <a class="cta" href="https://github.com/keepr/keepr/releases/latest">Get the latest release</a>
+      <p class="aside">
+        First launch: right-click the app icon, then click Open. macOS will
+        warn you it's from an unidentified developer — that's because v1 ships
+        unsigned while the Apple Developer enrollment clears. Signed and
+        notarized builds are coming in the next release.
+      </p>
+    </main>
+
+    <footer>
+      <span>© 2026 Keepr. MIT licensed.</span>
+      <span>
+        <a href="https://github.com/keepr/keepr">GitHub</a>
+        <a href="https://github.com/keepr/keepr/blob/main/ROADMAP.md">Roadmap</a>
+        <a href="https://github.com/keepr/keepr/blob/main/PRIVACY.md">Privacy</a>
+      </span>
+    </footer>
+  </body>
+</html>
