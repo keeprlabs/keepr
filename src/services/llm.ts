@@ -328,7 +328,6 @@ const claudeCode: LLMProvider = {
     const args = [
       "--print",
       "--model", opts.model,
-      "--max-tokens", String(opts.max_tokens ?? 4096),
       "--output-format", "json",
       prompt,
     ];
@@ -354,8 +353,7 @@ const claudeCode: LLMProvider = {
   async test() {
     const args = [
       "--print",
-      "--model", "claude-haiku-4-5-20251001",
-      "--max-tokens", "10",
+      "--model", "haiku",
       "Reply with just: ok",
     ];
     const result = await Command.create("claude", args).execute();
