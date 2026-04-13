@@ -316,6 +316,10 @@ async function probeClaude(cmd: string): Promise<boolean> {
   }
 }
 
+/** Unset CLAUDECODE so the CLI doesn't refuse to run when Keepr is
+ *  launched from inside a Claude Code terminal session. */
+const CLAUDE_SPAWN_OPTS = { env: { CLAUDECODE: "" } };
+
 const claudeCode: LLMProvider = {
   id: "claude-code",
   label: "Claude Code",
@@ -331,7 +335,7 @@ const claudeCode: LLMProvider = {
       "--output-format", "json",
       prompt,
     ];
-    const result = await Command.create("claude", args).execute();
+    const result = await Command.create("claude", args, CLAUDE_SPAWN_OPTS).execute();
     if (result.code !== 0) {
       const msg = result.stderr || result.stdout || "claude exited with code " + result.code;
       throw new Error(`Claude Code error: ${msg.slice(0, 500)}`);
@@ -356,7 +360,7 @@ const claudeCode: LLMProvider = {
       "--model", "haiku",
       "Reply with just: ok",
     ];
-    const result = await Command.create("claude", args).execute();
+    const result = await Command.create("claude", args, CLAUDE_SPAWN_OPTS).execute();
     if (result.code !== 0) {
       const msg = result.stderr || result.stdout || "exit code " + result.code;
       throw new Error(`Claude Code not available: ${msg.slice(0, 300)}`);
