@@ -1,8 +1,12 @@
 # Contributors
 
-## Project Maintainers
+## Creator & Maintainer
 
-- [Manikandan](https://github.com/mvmcode) - Creator
+- [Raghavan VM](https://github.com/raghavanvm)
+
+## Maintainers
+
+- [Manikandan](https://github.com/mvmcode)
 
 ## How to Get Listed
 
