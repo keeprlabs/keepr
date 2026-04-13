@@ -1,5 +1,7 @@
 # Contributing
 
+Thank you for your interest in contributing to Keepr. Please review our [Code of Conduct](./CODE_OF_CONDUCT.md) before participating.
+
 Keepr is built dogfood-first. That shapes how contributions work.
 
 ## The rule that matters most
@@ -80,3 +82,11 @@ Bug reports without reproducible evidence get closed with a request for more det
 - Telemetry in v1 (planned for v1.5, opt-in, aggregate only)
 - Features that only make sense for a hypothetical future user
 - Dependencies with a single maintainer and no release in the last 12 months, absent a specific reason
+
+## Security vulnerabilities
+
+If you find a security issue, do not open a public issue. See [`SECURITY.md`](./SECURITY.md) for how to report it.
+
+## License
+
+By contributing to Keepr, you agree that your contributions will be licensed under the MIT License.
