@@ -155,7 +155,7 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
         {" "}— Pro subscriptions don't include API access.
       </p>
 
-      <div className="mb-6 grid grid-cols-4 gap-2">
+      <div className="mb-6 grid grid-cols-2 gap-2">
         {PROVIDERS.map((row) => {
           const active = provider === row.id;
           return (
