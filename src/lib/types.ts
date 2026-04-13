@@ -1,6 +1,6 @@
 // Shared domain types for Keepr.
 
-export type Provider = "slack" | "github" | "jira" | "linear" | "anthropic" | "openai" | "openrouter";
+export type Provider = "slack" | "github" | "jira" | "linear" | "anthropic" | "openai" | "openrouter" | "custom";
 export type WorkflowType = "team_pulse" | "one_on_one_prep" | "weekly_update" | "perf_evaluation" | "promo_readiness";
 export type SessionStatus = "pending" | "processing" | "complete" | "failed";
 export type EvidenceSource = "github_pr" | "github_review" | "slack_message" | "jira_issue" | "jira_comment" | "linear_issue" | "linear_comment";
@@ -77,9 +77,12 @@ export interface AppConfig {
   selected_jira_projects: JiraProject[];
   selected_linear_teams: LinearTeam[];
   jira_cloud_url: string;
-  llm_provider: "anthropic" | "openai" | "openrouter";
+  llm_provider: "anthropic" | "openai" | "openrouter" | "custom";
   synthesis_model: string;
   classifier_model: string;
+  custom_llm_base_url: string;
+  custom_llm_synthesis_model: string;
+  custom_llm_classifier_model: string;
   privacy_consent_at: string | null;
   onboarded_at: string | null;
   engineering_rubric: string | null;
@@ -95,6 +98,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   llm_provider: "anthropic",
   synthesis_model: "claude-sonnet-4-6",
   classifier_model: "claude-haiku-4-5-20251001",
+  custom_llm_base_url: "",
+  custom_llm_synthesis_model: "",
+  custom_llm_classifier_model: "",
   privacy_consent_at: null,
   onboarded_at: null,
   engineering_rubric: null,

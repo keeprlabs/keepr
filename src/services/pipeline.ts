@@ -35,7 +35,7 @@ import {
 } from "./slack";
 import { fetchProjectActivity, type FetchedJiraIssue } from "./jira";
 import { fetchTeamActivity, type FetchedLinearIssue } from "./linear";
-import { getProvider } from "./llm";
+import { getProvider, setCustomConfig } from "./llm";
 import { writeMemory, readMemoryContext } from "./memory";
 
 // ---- Normalization -------------------------------------------------------
@@ -569,6 +569,13 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     }
 
     // ---- Map (Haiku per bucket) ----
+    if (cfg.llm_provider === "custom") {
+      setCustomConfig({
+        base_url: cfg.custom_llm_base_url,
+        synthesis_model: cfg.custom_llm_synthesis_model,
+        classifier_model: cfg.custom_llm_classifier_model,
+      });
+    }
     const provider = getProvider(cfg.llm_provider);
     progress("map", `Summarizing ${buckets.size} sources`);
 
