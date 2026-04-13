@@ -328,14 +328,21 @@ const claudeCode: LLMProvider = {
   defaultClassifierModel: "claude-haiku-4-5-20251001",
 
   async complete(opts) {
-    const prompt = buildCliPrompt(opts.system, opts.messages);
+    // Build a single user-content string from messages (system goes via flag).
+    const userContent = opts.messages
+      .map((m) => m.content)
+      .join("\n");
     const args = [
       "--print",
       "--model", opts.model,
       "--output-format", "json",
-      prompt,
     ];
-    const result = await Command.create("claude", args, CLAUDE_SPAWN_OPTS).execute();
+    if (opts.system) {
+      args.push("--system-prompt", opts.system);
+    }
+    args.push(userContent);
+    const cmd = Command.create("claude", args, CLAUDE_SPAWN_OPTS);
+    const result = await cmd.execute();
     if (result.code !== 0) {
       const msg = result.stderr || result.stdout || "claude exited with code " + result.code;
       throw new Error(`Claude Code error: ${msg.slice(0, 500)}`);
