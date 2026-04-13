@@ -12,7 +12,7 @@ import {
   deleteMember,
 } from "../services/db";
 import { SECRET_KEYS, getSecret, setSecret } from "../services/secrets";
-import { getProvider, type LLMProviderId } from "../services/llm";
+import { getProvider, setCustomConfig, type LLMProviderId } from "../services/llm";
 import { defaultMemoryDir } from "../services/fsio";
 import { slugify } from "../services/memory";
 import * as slack from "../services/slack";
@@ -94,16 +94,23 @@ export function Settings() {
 
         <Panel title="Model">
           <div className="mb-3 flex gap-2">
-            {(["anthropic", "openai", "openrouter"] as LLMProviderId[]).map((id) => (
+            {(["anthropic", "openai", "openrouter", "custom"] as LLMProviderId[]).map((id) => (
               <button
                 key={id}
                 onClick={async () => {
                   const p = getProvider(id);
-                  await setConfig({
+                  const patch: Record<string, any> = {
                     llm_provider: id,
-                    synthesis_model: p.defaultSynthesisModel,
-                    classifier_model: p.defaultClassifierModel,
-                  });
+                  };
+                  if (id === "custom") {
+                    // For custom, use the stored custom model names (or keep current).
+                    patch.synthesis_model = cfg.custom_llm_synthesis_model || cfg.synthesis_model;
+                    patch.classifier_model = cfg.custom_llm_classifier_model || cfg.classifier_model;
+                  } else {
+                    patch.synthesis_model = p.defaultSynthesisModel;
+                    patch.classifier_model = p.defaultClassifierModel;
+                  }
+                  await setConfig(patch);
                   // load() will read the key for the newly-active provider.
                   await load();
                 }}
@@ -120,6 +127,70 @@ export function Settings() {
           {(() => {
             const activeProvider = (cfg.llm_provider || "anthropic") as LLMProviderId;
             const p = getProvider(activeProvider);
+
+            const saveKey = async () => {
+              try {
+                await setSecret(SECRET_KEYS[activeProvider], llmKey.trim());
+                const readBack = await getSecret(SECRET_KEYS[activeProvider]);
+                if (readBack !== llmKey.trim()) {
+                  throw new Error("Key did not persist (keychain read-back mismatch)");
+                }
+                if (activeProvider === "custom") {
+                  await setConfig({
+                    custom_llm_base_url: cfg.custom_llm_base_url,
+                    custom_llm_synthesis_model: cfg.custom_llm_synthesis_model,
+                    custom_llm_classifier_model: cfg.custom_llm_classifier_model,
+                    synthesis_model: cfg.custom_llm_synthesis_model,
+                    classifier_model: cfg.custom_llm_classifier_model,
+                  });
+                  setCustomConfig({
+                    base_url: cfg.custom_llm_base_url,
+                    synthesis_model: cfg.custom_llm_synthesis_model,
+                    classifier_model: cfg.custom_llm_classifier_model,
+                  });
+                }
+                setLlmSaveStatus("saved");
+                setTimeout(() => setLlmSaveStatus("idle"), 1800);
+              } catch (e: any) {
+                // eslint-disable-next-line no-console
+                console.error("[keepr] setSecret failed:", e);
+                setLlmSaveStatus("error");
+              }
+            };
+
+            if (activeProvider === "custom") {
+              return (
+                <>
+                  <Field label="Base URL">
+                    <input
+                      className={inputCls}
+                      value={cfg.custom_llm_base_url || ""}
+                      placeholder="http://localhost:11434"
+                      onChange={(e) => setCfg({ ...cfg, custom_llm_base_url: e.target.value })}
+                      onBlur={() => setConfig({ custom_llm_base_url: cfg.custom_llm_base_url })}
+                    />
+                  </Field>
+                  <Field label="API key (optional)">
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        className={inputCls}
+                        value={llmKey}
+                        placeholder="optional"
+                        onChange={(e) => {
+                          setLlmKey(e.target.value);
+                          if (llmSaveStatus !== "idle") setLlmSaveStatus("idle");
+                        }}
+                      />
+                      <Ghost onClick={saveKey}>
+                        {llmSaveStatus === "saved" ? "Saved" : llmSaveStatus === "error" ? "Failed" : "Save"}
+                      </Ghost>
+                    </div>
+                  </Field>
+                </>
+              );
+            }
+
             return (
               <Field label={`${p.label} API key`}>
                 <div className="flex gap-2">
@@ -133,37 +204,8 @@ export function Settings() {
                       if (llmSaveStatus !== "idle") setLlmSaveStatus("idle");
                     }}
                   />
-                  <Ghost
-                    onClick={async () => {
-                      try {
-                        await setSecret(
-                          SECRET_KEYS[activeProvider],
-                          llmKey.trim()
-                        );
-                        // Read-back verification — catches silent keychain
-                        // failures in unsigned dev builds.
-                        const readBack = await getSecret(
-                          SECRET_KEYS[activeProvider]
-                        );
-                        if (readBack !== llmKey.trim()) {
-                          throw new Error(
-                            "Key did not persist (keychain read-back mismatch)"
-                          );
-                        }
-                        setLlmSaveStatus("saved");
-                        setTimeout(() => setLlmSaveStatus("idle"), 1800);
-                      } catch (e: any) {
-                        // eslint-disable-next-line no-console
-                        console.error("[keepr] setSecret failed:", e);
-                        setLlmSaveStatus("error");
-                      }
-                    }}
-                  >
-                    {llmSaveStatus === "saved"
-                      ? "Saved"
-                      : llmSaveStatus === "error"
-                      ? "Failed"
-                      : "Save"}
+                  <Ghost onClick={saveKey}>
+                    {llmSaveStatus === "saved" ? "Saved" : llmSaveStatus === "error" ? "Failed" : "Save"}
                   </Ghost>
                   <Ghost onClick={() => openExternal(p.keyUrl)}>
                     Open dashboard
@@ -175,17 +217,43 @@ export function Settings() {
           <Field label="Synthesis model">
             <input
               className={inputCls}
-              value={cfg.synthesis_model}
-              onChange={(e) => setCfg({ ...cfg, synthesis_model: e.target.value })}
-              onBlur={() => setConfig({ synthesis_model: cfg.synthesis_model })}
+              value={cfg.llm_provider === "custom" ? (cfg.custom_llm_synthesis_model || "") : cfg.synthesis_model}
+              placeholder={cfg.llm_provider === "custom" ? "e.g. llama3.1:70b" : undefined}
+              onChange={(e) => {
+                if (cfg.llm_provider === "custom") {
+                  setCfg({ ...cfg, custom_llm_synthesis_model: e.target.value, synthesis_model: e.target.value });
+                } else {
+                  setCfg({ ...cfg, synthesis_model: e.target.value });
+                }
+              }}
+              onBlur={() => {
+                if (cfg.llm_provider === "custom") {
+                  setConfig({ custom_llm_synthesis_model: cfg.custom_llm_synthesis_model, synthesis_model: cfg.custom_llm_synthesis_model });
+                } else {
+                  setConfig({ synthesis_model: cfg.synthesis_model });
+                }
+              }}
             />
           </Field>
           <Field label="Classifier model">
             <input
               className={inputCls}
-              value={cfg.classifier_model}
-              onChange={(e) => setCfg({ ...cfg, classifier_model: e.target.value })}
-              onBlur={() => setConfig({ classifier_model: cfg.classifier_model })}
+              value={cfg.llm_provider === "custom" ? (cfg.custom_llm_classifier_model || "") : cfg.classifier_model}
+              placeholder={cfg.llm_provider === "custom" ? "e.g. llama3.1:8b" : undefined}
+              onChange={(e) => {
+                if (cfg.llm_provider === "custom") {
+                  setCfg({ ...cfg, custom_llm_classifier_model: e.target.value, classifier_model: e.target.value });
+                } else {
+                  setCfg({ ...cfg, classifier_model: e.target.value });
+                }
+              }}
+              onBlur={() => {
+                if (cfg.llm_provider === "custom") {
+                  setConfig({ custom_llm_classifier_model: cfg.custom_llm_classifier_model, classifier_model: cfg.custom_llm_classifier_model });
+                } else {
+                  setConfig({ classifier_model: cfg.classifier_model });
+                }
+              }}
             />
           </Field>
         </Panel>

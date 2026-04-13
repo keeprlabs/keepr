@@ -5,7 +5,7 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { SECRET_KEYS, getSecret } from "./secrets";
 
-export type LLMProviderId = "anthropic" | "openai" | "openrouter";
+export type LLMProviderId = "anthropic" | "openai" | "openrouter" | "custom";
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant";
@@ -39,6 +39,23 @@ export interface LLMProvider {
   defaultClassifierModel: string;
   complete(opts: LLMCallOptions): Promise<LLMCallResult>;
   test(keyOverride?: string): Promise<boolean>;
+}
+
+/** Runtime config for the custom provider, loaded from app_config. */
+export interface CustomProviderConfig {
+  base_url: string;
+  synthesis_model: string;
+  classifier_model: string;
+}
+
+let _customConfig: CustomProviderConfig | null = null;
+
+export function setCustomConfig(cfg: CustomProviderConfig) {
+  _customConfig = cfg;
+}
+
+export function getCustomConfig(): CustomProviderConfig | null {
+  return _customConfig;
 }
 
 // ---- Anthropic -----------------------------------------------------------
@@ -213,10 +230,65 @@ const openrouter: LLMProvider = {
   },
 };
 
+// ---- Custom (OpenAI-compatible) -------------------------------------------
+
+const custom: LLMProvider = {
+  id: "custom",
+  label: "Custom",
+  keyUrl: "", // no dashboard — user provides their own
+  defaultSynthesisModel: "default",
+  defaultClassifierModel: "default",
+
+  async complete(opts) {
+    const cfg = _customConfig;
+    if (!cfg?.base_url) throw new Error("Custom provider not configured — set a base URL in Settings.");
+    const key = opts.keyOverride || (await getSecret(SECRET_KEYS.custom));
+    const url = cfg.base_url.replace(/\/+$/, "") + "/v1/chat/completions";
+    const msgs: LLMMessage[] = [];
+    if (opts.system) msgs.push({ role: "system", content: opts.system });
+    msgs.push(...opts.messages);
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    if (key) headers["Authorization"] = `Bearer ${key}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model: opts.model,
+        temperature: opts.temperature ?? 0.2,
+        max_tokens: opts.max_tokens ?? 4096,
+        messages: msgs,
+      }),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`Custom endpoint ${res.status}: ${t.slice(0, 300)}`);
+    }
+    const data: any = await res.json();
+    return {
+      text: data.choices?.[0]?.message?.content ?? "",
+      input_tokens: data.usage?.prompt_tokens ?? 0,
+      output_tokens: data.usage?.completion_tokens ?? 0,
+    };
+  },
+
+  async test(keyOverride?: string) {
+    await this.complete({
+      model: _customConfig?.classifier_model || "default",
+      messages: [{ role: "user", content: "Reply with just: ok" }],
+      max_tokens: 10,
+      keyOverride,
+    });
+    return true;
+  },
+};
+
 export const PROVIDERS: Record<LLMProviderId, LLMProvider> = {
   anthropic,
   openai,
   openrouter,
+  custom,
 };
 
 export function getProvider(id: LLMProviderId): LLMProvider {
