@@ -5,6 +5,12 @@ on:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_dmg:
+        description: "Build macOS DMG"
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -52,6 +58,7 @@ jobs:
 
   build-dmg:
     name: Build macOS DMG
+    if: github.event_name == 'workflow_dispatch' && inputs.build_dmg
     runs-on: macos-14
     needs: check
     steps:
