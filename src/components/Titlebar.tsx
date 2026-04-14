@@ -42,17 +42,10 @@ export function Titlebar({
             )}
           </svg>
         </button>
-        <div className="flex items-center gap-2 text-xxs uppercase tracking-[0.14em] text-ink-faint">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink" />
-          <span className="font-medium tracking-[0.18em] text-ink-muted">
-            KEEPR
-          </span>
-        </div>
       </div>
       <button
         onClick={onOpenPalette}
         className="no-drag group flex items-center gap-2.5 rounded-full border border-hairline bg-canvas py-[5px] pl-3 pr-1.5 text-[11px] text-ink-muted transition-all duration-180 ease-calm hover:border-ink/25 hover:text-ink"
-        aria-label="Open command palette (⌘K)"
       >
         <svg
           width="12"
