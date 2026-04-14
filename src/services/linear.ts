@@ -61,6 +61,24 @@ export async function listTeams(): Promise<LinearTeamRemote[]> {
   return data.teams.nodes;
 }
 
+// ---- Users (for team member picker) ----------------------------------------
+
+export interface LinearUser {
+  id: string;
+  name: string;
+  displayName: string;
+  email?: string;
+}
+
+export async function listOrgMembers(): Promise<LinearUser[]> {
+  const data = await linearFetch<{
+    users: { nodes: LinearUser[] };
+  }>(`
+    query { users(first: 100) { nodes { id name displayName email } } }
+  `);
+  return data.users.nodes.filter((u) => u.displayName || u.name);
+}
+
 // ---- Fetch for pipeline ---------------------------------------------------
 
 export interface FetchedLinearIssue {
