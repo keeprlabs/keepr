@@ -1,6 +1,5 @@
 // A whisper of a title bar — drag handle + wordmark + command hint.
 // No window controls drawn by us; macOS draws its own traffic lights.
-import wordmarkSvg from "../assets/wordmark.svg";
 
 export function Titlebar({
   onOpenPalette,
@@ -43,10 +42,6 @@ export function Titlebar({
             )}
           </svg>
         </button>
-        <div className="flex items-center gap-2 text-ink-muted">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-ink" />
-          <img src={wordmarkSvg} alt="Keepr" className="h-[13px] opacity-60" />
-        </div>
       </div>
       <button
         onClick={onOpenPalette}

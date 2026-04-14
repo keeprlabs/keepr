@@ -284,7 +284,8 @@ ${rendered}
                       {ev.content}
                     </div>
                     <div className="mt-1 flex items-center gap-2 text-[10px] text-ink-faint">
-                      <span className="uppercase tracking-[0.08em]">
+                      <span className="flex items-center gap-1 uppercase tracking-[0.08em]">
+                        {iconFor(ev.source)}
                         {labelFor(ev.source)}
                       </span>
                       <span className="text-ink-ghost">·</span>
@@ -338,6 +339,45 @@ ${rendered}
       </div>
     </div>
   );
+}
+
+const SOURCE_ICONS: Record<string, React.ReactNode> = {
+  github: (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M8 1.5A6.5 6.5 0 0 0 5.94 14.18c.33.06.44-.14.44-.31v-1.1c-1.82.4-2.2-.87-2.2-.87a1.73 1.73 0 0 0-.73-.95c-.59-.41.05-.4.05-.4a1.37 1.37 0 0 1 1 .68 1.4 1.4 0 0 0 1.9.54 1.38 1.38 0 0 1 .42-.88c-1.45-.16-2.98-.72-2.98-3.23a2.53 2.53 0 0 1 .67-1.76 2.35 2.35 0 0 1 .06-1.73s.55-.18 1.8.67a6.2 6.2 0 0 1 3.26 0c1.25-.85 1.8-.67 1.8-.67a2.35 2.35 0 0 1 .07 1.73 2.53 2.53 0 0 1 .67 1.76c0 2.52-1.53 3.07-2.99 3.23a1.56 1.56 0 0 1 .44 1.2v1.78c0 .17.12.38.45.31A6.5 6.5 0 0 0 8 1.5z" stroke="currentColor" strokeWidth="0.8" fill="currentColor" />
+    </svg>
+  ),
+  slack: (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M3.5 9.5a1.5 1.5 0 1 1 0-3h3v3a1.5 1.5 0 0 1-3 0z" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M9.5 3.5a1.5 1.5 0 1 1 3 0v3h-3a1.5 1.5 0 0 1 0-3z" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M12.5 9.5a1.5 1.5 0 1 1 0 3h-3v-3a1.5 1.5 0 0 1 3 0z" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M6.5 12.5a1.5 1.5 0 1 1-3 0v-3h3a1.5 1.5 0 0 1 0 3z" stroke="currentColor" strokeWidth="1.1" />
+    </svg>
+  ),
+  jira: (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M14 2H8.24a3.1 3.1 0 0 0 3.1 3.1H12v.66a3.1 3.1 0 0 0 3.1 3.1V3.1A1.1 1.1 0 0 0 14 2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+      <path d="M11 5H5.24a3.1 3.1 0 0 0 3.1 3.1H9v.66a3.1 3.1 0 0 0 3.1 3.1V6.1A1.1 1.1 0 0 0 11 5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+      <path d="M8 8H2.24a3.1 3.1 0 0 0 3.1 3.1H6v.66A3.1 3.1 0 0 0 9.1 14.86V9.1A1.1 1.1 0 0 0 8 8z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+    </svg>
+  ),
+  linear: (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M2.4 10.4a6.5 6.5 0 0 0 3.2 3.2L2.4 10.4z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M1.5 8a6.5 6.5 0 0 0 .4 2.2L8.2 3.9A6.5 6.5 0 0 0 1.5 8z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5.8 2.4a6.5 6.5 0 0 1 7.8 7.8L5.8 2.4z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12.1 11.6a6.5 6.5 0 0 1-1.7 1.7l1.7-1.7z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
+};
+
+function iconFor(src: string): React.ReactNode {
+  if (src.startsWith("github")) return SOURCE_ICONS.github;
+  if (src.startsWith("slack")) return SOURCE_ICONS.slack;
+  if (src.startsWith("jira")) return SOURCE_ICONS.jira;
+  if (src.startsWith("linear")) return SOURCE_ICONS.linear;
+  return null;
 }
 
 function labelFor(src: string): string {

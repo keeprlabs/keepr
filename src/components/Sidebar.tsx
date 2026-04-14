@@ -2,8 +2,9 @@
 // Reads as an index of the workspace — quiet sections, tight rhythm, one
 // active row at a time.
 
+import { useState } from "react";
 import type { SessionRow, TeamMember } from "../lib/types";
-import wordmarkSvg from "../assets/wordmark.svg";
+
 
 export type ViewKey =
   | { kind: "home" }
@@ -42,18 +43,19 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
       <div className="flex-1 overflow-y-auto px-5 pt-7 pb-4">
         <button
           onClick={() => onSelect({ kind: "home" })}
-          className={`mb-7 flex w-full items-baseline gap-2 rounded-md px-2 py-1 text-left transition-colors duration-180 ${
+          className={`mb-5 flex w-full items-center gap-2.5 rounded-md px-2 py-[5px] text-left text-sm transition-colors duration-180 ${
             view.kind === "home" ? "text-ink" : "text-ink-soft hover:text-ink"
           }`}
         >
-          <img src={wordmarkSvg} alt="Keepr" className="h-[17px]" />
-          <span className="text-[10px] uppercase tracking-[0.14em] text-ink-faint">
-            home
-          </span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0">
+            <path d="M3 7.5L8 3l5 4.5V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7.5z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Home
         </button>
 
         <Section
           label="Sessions"
+          icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.3" /><path d="M5 6.5h6M5 9.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>}
           count={sessions.length}
           suffix={
             archivedCount > 0 ? (
@@ -94,7 +96,7 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
           })}
         </Section>
 
-        <Section label="People" count={members.length}>
+        <Section label="People" icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><circle cx="8" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.3" /><path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>} count={members.length}>
           {members.length === 0 && (
             <EmptyHint>Add members in Settings</EmptyHint>
           )}
@@ -108,7 +110,7 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
           ))}
         </Section>
 
-        <Section label="Memory">
+        <Section label="Memory" icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><path d="M8 2C5 2 3 3.5 3 5v6c0 1.5 2 3 5 3s5-1.5 5-3V5c0-1.5-2-3-5-3z" stroke="currentColor" strokeWidth="1.3" /><path d="M3 8c0 1.5 2 3 5 3s5-1.5 5-3" stroke="currentColor" strokeWidth="1.3" /></svg>}>
           <Item
             active={view.kind === "memory" && view.file === "status"}
             onClick={() => onSelect({ kind: "memory", file: "status" })}
@@ -136,24 +138,7 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
       </div>
 
       <div className="hair-t px-5 py-4">
-        <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
-          Connected
-        </div>
-        <div className="flex flex-col gap-1.5">
-          {["anthropic", "github", "slack", "jira", "linear"].map((p) => {
-            const integ = integrations.find((i) => i.provider === p);
-            const state = integ?.status === "active" ? "ok" : integ ? "warn" : "off";
-            return (
-              <div
-                key={p}
-                className="flex items-center justify-between text-xs text-ink-muted"
-              >
-                <span className="capitalize">{p}</span>
-                <StatusDot state={state} />
-              </div>
-            );
-          })}
-        </div>
+        <ConnectedSection integrations={integrations} />
         <button
           onClick={() => onSelect({ kind: "settings" })}
           className={`mt-4 flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs transition-colors duration-180 ${
@@ -162,7 +147,13 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
               : "text-ink-muted hover:text-ink"
           }`}
         >
-          <span>Settings</span>
+          <span className="flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+              <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.3" />
+              <path d="M8 0.5v2.5M8 13v2.5M0.5 8H3M13 8h2.5M2.34 2.34l1.77 1.77M11.89 11.89l1.77 1.77M2.34 13.66l1.77-1.77M11.89 4.11l1.77-1.77" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+            Settings
+          </span>
           <span className="mono text-[10px] text-ink-faint">⌘,</span>
         </button>
       </div>
@@ -172,11 +163,13 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
 
 function Section({
   label,
+  icon,
   count,
   suffix,
   children,
 }: {
   label: string;
+  icon?: React.ReactNode;
   count?: number;
   suffix?: React.ReactNode;
   children: React.ReactNode;
@@ -184,7 +177,8 @@ function Section({
   return (
     <div className="mb-6">
       <div className="mb-2 flex items-center justify-between px-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
+          {icon}
           {label}
         </span>
         <span className="flex items-center gap-2">
@@ -196,7 +190,7 @@ function Section({
           )}
         </span>
       </div>
-      <div className="flex flex-col gap-[1px]">{children}</div>
+      <div className="flex flex-col gap-[1px] pl-3">{children}</div>
     </div>
   );
 }
@@ -275,18 +269,55 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ConnectedSection({ integrations }: { integrations: Array<{ provider: string; status: string }> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => setOpen(!open)}
+        className="mb-3 flex w-full items-center justify-between text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted"
+      >
+        <span>Connected</span>
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 16 16"
+          fill="none"
+          aria-hidden
+          className={`transition-transform duration-180 ${open ? "" : "-rotate-90"}`}
+        >
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="mb-3 flex flex-col gap-1.5">
+          {["anthropic", "github", "slack", "jira", "linear"].map((p) => {
+            const integ = integrations.find((i) => i.provider === p);
+            const state = integ?.status === "active" ? "ok" : integ ? "warn" : "off";
+            return (
+              <div
+                key={p}
+                className="flex items-center justify-between text-xs text-ink-muted"
+              >
+                <span className="capitalize">{p}</span>
+                <StatusDot state={state} />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
 function StatusDot({ state }: { state: "ok" | "warn" | "off" }) {
-  // Monochromatic: a filled ink dot for connected, a hollow ring for
-  // warn, and an empty trace for disconnected. No stray brand colors.
   if (state === "ok") {
-    return <span className="h-1.5 w-1.5 rounded-full bg-ink" />;
+    return <span className="h-2 w-2 rounded-full bg-green-500" />;
   }
   if (state === "warn") {
-    return (
-      <span className="h-1.5 w-1.5 rounded-full border border-ink/50 bg-transparent" />
-    );
+    return <span className="h-2 w-2 rounded-full bg-amber-400" />;
   }
-  return <span className="h-1.5 w-1.5 rounded-full border border-ink/15 bg-transparent" />;
+  return <span className="h-2 w-2 rounded-full border border-ink/15 bg-transparent" />;
 }
 
 function formatShort(iso: string): string {
