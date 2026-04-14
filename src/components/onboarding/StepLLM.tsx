@@ -38,6 +38,11 @@ const PROVIDERS: Array<{
     id: "custom",
     blurb: "Any OpenAI-compatible endpoint — Ollama, vLLM, LM Studio, etc.",
   },
+  {
+    id: "claude-code",
+    badge: "No API key",
+    blurb: "Uses your installed Claude Code CLI. No separate API key needed.",
+  },
 ];
 
 export function StepLLM({ onNext }: { onNext: () => void }) {
@@ -64,8 +69,12 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
   // When provider changes, reload any key already stored for that provider.
   useEffect(() => {
     (async () => {
-      const existing = await getSecret(SECRET_KEYS[provider]);
-      setKey(existing || "");
+      if (provider === "claude-code") {
+        setKey("");
+      } else {
+        const existing = await getSecret(SECRET_KEYS[provider]);
+        setKey(existing || "");
+      }
       setState("idle");
       setError("");
     })();
@@ -78,7 +87,9 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
     setError("");
     const trimmed = key.trim();
 
-    if (provider === "custom") {
+    if (provider === "claude-code") {
+      // No key or config needed — just detect the CLI.
+    } else if (provider === "custom") {
       if (!customBaseUrl.trim()) {
         setState("err");
         setError("Enter a base URL for your endpoint (e.g. http://localhost:11434).");
@@ -184,7 +195,15 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
         })}
       </div>
 
-      {provider === "custom" ? (
+      {provider === "claude-code" ? (
+        <div className="mb-4 rounded-md border border-hairline bg-sunken px-4 py-4 text-sm text-ink-soft">
+          <p className="font-medium text-ink">No API key required.</p>
+          <p className="mt-1 text-xxs leading-snug text-ink-faint">
+            Keepr will use your installed Claude Code CLI. Billing goes through
+            your existing Claude Code account.
+          </p>
+        </div>
+      ) : provider === "custom" ? (
         <>
           <Field label="Base URL" hint="The root URL of your OpenAI-compatible server (e.g. http://localhost:11434)">
             <Input
@@ -255,13 +274,15 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
       >
         <PrimaryButton
           onClick={test}
-          disabled={(provider !== "custom" && !key.trim()) || state === "testing"}
+          disabled={(provider !== "custom" && provider !== "claude-code" && !key.trim()) || state === "testing"}
         >
-          {state === "testing" ? "Testing…" : "Test & save"}
+          {state === "testing"
+            ? (provider === "claude-code" ? "Detecting…" : "Testing…")
+            : (provider === "claude-code" ? "Detect & save" : "Test & save")}
         </PrimaryButton>
         <StatusLine
           state={state}
-          message={state === "ok" ? "Key verified." : error}
+          message={state === "ok" ? (provider === "claude-code" ? "Claude Code detected." : "Key verified.") : error}
         />
       </StepFooter>
     </div>
@@ -276,7 +297,7 @@ function keyFormatProblem(
   provider: LLMProviderId,
   key: string
 ): string | null {
-  if (provider === "custom") return null;
+  if (provider === "custom" || provider === "claude-code") return null;
   if (!key) return "Paste your API key to continue.";
   if (/\s/.test(key)) return "That key has whitespace in it — try copying again.";
   if (key.length < 20) return "That looks too short to be an API key.";

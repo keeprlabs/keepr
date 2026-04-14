@@ -13,8 +13,8 @@
     "windows": [
       {
         "title": "Keepr",
-        "width": 1280,
-        "height": 800,
+        "width": 1024,
+        "height": 700,
         "minWidth": 960,
         "minHeight": 640,
         "resizable": true,

@@ -17,6 +17,7 @@ export const SECRET_KEYS = {
   openai: "llm.openai.key",
   openrouter: "llm.openrouter.key",
   custom: "llm.custom.key",
+  "claude-code": "llm.claude-code.key",
   github: "github.token",
   slackBot: "slack.bot_token",
   slackClientId: "slack.client_id",

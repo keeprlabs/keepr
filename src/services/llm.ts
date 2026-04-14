@@ -3,9 +3,10 @@
 // drop-in alternatives.
 
 import { fetch } from "@tauri-apps/plugin-http";
+import { Command } from "@tauri-apps/plugin-shell";
 import { SECRET_KEYS, getSecret } from "./secrets";
 
-export type LLMProviderId = "anthropic" | "openai" | "openrouter" | "custom";
+export type LLMProviderId = "anthropic" | "openai" | "openrouter" | "custom" | "claude-code";
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant";
@@ -284,11 +285,103 @@ const custom: LLMProvider = {
   },
 };
 
+// ---- Claude Code (CLI) ----------------------------------------------------
+
+/** Flatten system + messages into a single prompt string for `claude --print`. */
+function buildCliPrompt(system: string | undefined, messages: LLMMessage[]): string {
+  const parts: string[] = [];
+  if (system) {
+    parts.push(`[System]\n${system}\n`);
+  }
+  for (const m of messages) {
+    if (m.role === "system") {
+      parts.push(`[System]\n${m.content}\n`);
+    } else {
+      parts.push(m.content);
+    }
+  }
+  return parts.join("\n");
+}
+
+/** Cached path to the `claude` binary once discovered. */
+let _claudePath: string | null = null;
+
+/** Try executing `claude` at the given path. Returns true if it works. */
+async function probeClaude(cmd: string): Promise<boolean> {
+  try {
+    const out = await Command.create("claude", ["--version"]).execute();
+    return out.code === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Unset CLAUDECODE so the CLI doesn't refuse to run when Keepr is
+ *  launched from inside a Claude Code terminal session. */
+const CLAUDE_SPAWN_OPTS = { env: { CLAUDECODE: "" } };
+
+const claudeCode: LLMProvider = {
+  id: "claude-code",
+  label: "Claude Code",
+  keyUrl: "",
+  defaultSynthesisModel: "claude-sonnet-4-6",
+  defaultClassifierModel: "claude-haiku-4-5-20251001",
+
+  async complete(opts) {
+    // Build a single user-content string from messages (system goes via flag).
+    const userContent = opts.messages
+      .map((m) => m.content)
+      .join("\n");
+    const args = [
+      "--print",
+      "--model", opts.model,
+      "--output-format", "json",
+    ];
+    if (opts.system) {
+      args.push("--system-prompt", opts.system);
+    }
+    args.push(userContent);
+    const cmd = Command.create("claude", args, CLAUDE_SPAWN_OPTS);
+    const result = await cmd.execute();
+    if (result.code !== 0) {
+      const msg = result.stderr || result.stdout || "claude exited with code " + result.code;
+      throw new Error(`Claude Code error: ${msg.slice(0, 500)}`);
+    }
+    // Try to parse JSON output for structured result + token counts.
+    try {
+      const data = JSON.parse(result.stdout);
+      return {
+        text: data.result ?? data.text ?? result.stdout,
+        input_tokens: data.usage?.input_tokens ?? data.input_tokens ?? 0,
+        output_tokens: data.usage?.output_tokens ?? data.output_tokens ?? 0,
+      };
+    } catch {
+      // Fallback: treat raw stdout as the text response.
+      return { text: result.stdout.trim(), input_tokens: 0, output_tokens: 0 };
+    }
+  },
+
+  async test() {
+    const args = [
+      "--print",
+      "--model", "haiku",
+      "Reply with just: ok",
+    ];
+    const result = await Command.create("claude", args, CLAUDE_SPAWN_OPTS).execute();
+    if (result.code !== 0) {
+      const msg = result.stderr || result.stdout || "exit code " + result.code;
+      throw new Error(`Claude Code not available: ${msg.slice(0, 300)}`);
+    }
+    return true;
+  },
+};
+
 export const PROVIDERS: Record<LLMProviderId, LLMProvider> = {
   anthropic,
   openai,
   openrouter,
   custom,
+  "claude-code": claudeCode,
 };
 
 export function getProvider(id: LLMProviderId): LLMProvider {
