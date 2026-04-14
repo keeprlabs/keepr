@@ -14,6 +14,7 @@ import type { PersonFact, QueryHistoryItem, TeamMember } from "../lib/types";
 import { getPersonFacts, getQueryHistory, saveQueryAnswer } from "../services/db";
 import { getConfig } from "../services/db";
 import { getProvider } from "../services/llm";
+import { renderSimpleMarkdown } from "../lib/markdown";
 
 // ---------------------------------------------------------------------------
 // LLM-backed query
@@ -112,9 +113,7 @@ export function PersonDetail({ member, onBack }: PersonDetailProps) {
     setQuerying(true);
     setCurrentAnswer(null);
     try {
-      const caveat = facts.length < 10 ? `Based on limited data (${facts.length} facts)... ` : "";
-      const raw = await queryPersonFacts(q, facts, member.display_name);
-      const answer = caveat + raw;
+      const answer = await queryPersonFacts(q, facts, member.display_name);
       setCurrentAnswer(answer);
       await saveQueryAnswer(member.id, q, answer);
       setQueryHistory((prev) => [
@@ -244,14 +243,15 @@ export function PersonDetail({ member, onBack }: PersonDetailProps) {
           )}
           {!querying && currentAnswer && (
             <div className="mb-6 rounded-md border border-hairline px-4 py-4 rise">
-              <p className="text-sm leading-relaxed text-ink-soft">
-                {limitedData && (
-                  <span className="text-ink-faint">
-                    Based on limited data ({facts.length} facts):{" "}
-                  </span>
-                )}
-                {currentAnswer}
-              </p>
+              {limitedData && (
+                <div className="mb-2 text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+                  Based on {facts.length} facts
+                </div>
+              )}
+              <div
+                className="reading-answer text-sm leading-relaxed text-ink-soft [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:mb-2 [&_ul]:list-none [&_ul]:pl-0 [&_li]:relative [&_li]:pl-5 [&_li]:mb-1.5 [&_li]:before:content-[''] [&_li]:before:absolute [&_li]:before:left-1.5 [&_li]:before:top-[9px] [&_li]:before:w-1 [&_li]:before:h-1 [&_li]:before:rounded-full [&_li]:before:bg-ink-faint [&_strong]:text-ink [&_code]:bg-sunken [&_code]:px-1 [&_code]:rounded [&_code]:text-xs"
+                dangerouslySetInnerHTML={{ __html: renderSimpleMarkdown(currentAnswer) }}
+              />
             </div>
           )}
 
@@ -295,9 +295,10 @@ export function PersonDetail({ member, onBack }: PersonDetailProps) {
                       <div className="text-xs font-medium text-ink-muted">
                         {item.query}
                       </div>
-                      <div className="mt-1 text-xs leading-relaxed text-ink-faint">
-                        {item.answer}
-                      </div>
+                      <div
+                        className="mt-1 text-xs leading-relaxed text-ink-faint [&_p]:mb-1 [&_p:last-child]:mb-0 [&_ul]:list-none [&_ul]:pl-0 [&_li]:pl-4 [&_li]:relative [&_li]:before:content-[''] [&_li]:before:absolute [&_li]:before:left-1 [&_li]:before:top-[7px] [&_li]:before:w-1 [&_li]:before:h-1 [&_li]:before:rounded-full [&_li]:before:bg-ink-ghost [&_strong]:text-ink-muted"
+                        dangerouslySetInnerHTML={{ __html: renderSimpleMarkdown(item.answer) }}
+                      />
                       <div className="mt-1 text-[10px] tabular-nums text-ink-ghost">
                         {fmtShort(item.created_at)}
                       </div>

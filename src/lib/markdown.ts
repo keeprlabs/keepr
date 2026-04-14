@@ -190,3 +190,53 @@ export function renderMarkdown(
   flushList();
   return out.join("\n");
 }
+
+/** Render markdown without the evidence citation system. Used for
+ *  query answers and other LLM output that doesn't have ev_N refs. */
+export function renderSimpleMarkdown(md: string): string {
+  const inlineFmt = (s: string): string => {
+    let o = esc(s);
+    // [fact_N] → small muted reference
+    o = o.replace(/\[fact_(\d+)\]/g, '<sup class="text-[9px] text-ink-faint">[$1]</sup>');
+    o = o.replace(/`([^`]+)`/g, "<code>$1</code>");
+    o = o.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    o = o.replace(/(^|\s)\*([^*]+)\*/g, "$1<em>$2</em>");
+    return o;
+  };
+
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const out: string[] = [];
+  let para: string[] = [];
+  let list: string[] | null = null;
+
+  const flushP = () => {
+    if (para.length) {
+      out.push(`<p>${inlineFmt(para.join(" "))}</p>`);
+      para = [];
+    }
+  };
+  const flushL = () => {
+    if (list) {
+      out.push(`<ul>${list.join("")}</ul>`);
+      list = null;
+    }
+  };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { flushP(); flushL(); continue; }
+    const numbered = line.match(/^\d+\.\s+(.+)/);
+    const bullet = line.match(/^[-*]\s+(.+)/);
+    if (numbered || bullet) {
+      flushP();
+      if (!list) list = [];
+      list.push(`<li>${inlineFmt((numbered || bullet)![1])}</li>`);
+    } else {
+      flushL();
+      para.push(line);
+    }
+  }
+  flushP();
+  flushL();
+  return out.join("\n");
+}
