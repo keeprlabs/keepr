@@ -6,7 +6,9 @@ import type {
   AppConfig,
   EvidenceItem,
   Integration,
+  PersonFact,
   Provider,
+  QueryHistoryItem,
   SessionRow,
   SessionStatus,
   TeamMember,
@@ -285,5 +287,93 @@ export async function setFetchCursor(
     `INSERT INTO fetch_cache(source, scope, last_fetched_at) VALUES(?,?,?)
      ON CONFLICT(source, scope) DO UPDATE SET last_fetched_at = excluded.last_fetched_at`,
     [source, scope, when]
+  );
+}
+
+// ---- Person facts --------------------------------------------------------
+
+export async function insertPersonFacts(
+  sessionId: number,
+  facts: Array<{
+    member_id: number;
+    fact_type: string;
+    summary: string;
+    evidence_ids: number[];
+  }>
+): Promise<void> {
+  const d = await db();
+  for (const f of facts) {
+    // Application-level dedup: skip if same member_id + fact_type + session_id + first evidence
+    const firstEv = f.evidence_ids.length > 0 ? f.evidence_ids[0] : -1;
+    const existing = await d.select<Array<{ id: number }>>(
+      "SELECT id FROM person_facts WHERE member_id = ? AND fact_type = ? AND session_id = ? LIMIT 1",
+      [f.member_id, f.fact_type, sessionId]
+    );
+    if (existing.length > 0) {
+      // Check first evidence match for dedup
+      const row = await d.select<Array<{ evidence_ids: string }>>(
+        "SELECT evidence_ids FROM person_facts WHERE id = ?",
+        [existing[0].id]
+      );
+      if (row.length > 0) {
+        try {
+          const ids = JSON.parse(row[0].evidence_ids) as number[];
+          if (ids.length > 0 && ids[0] === firstEv) continue;
+        } catch {
+          // malformed JSON — skip dedup, insert anyway
+        }
+      }
+    }
+    await d.execute(
+      "INSERT INTO person_facts(member_id, session_id, fact_type, summary, evidence_ids) VALUES(?,?,?,?,?)",
+      [f.member_id, sessionId, f.fact_type, f.summary, JSON.stringify(f.evidence_ids)]
+    );
+  }
+}
+
+export async function getPersonFacts(
+  memberId: number,
+  limit?: number
+): Promise<PersonFact[]> {
+  const d = await db();
+  const sql = limit
+    ? "SELECT * FROM person_facts WHERE member_id = ? ORDER BY extracted_at DESC LIMIT ?"
+    : "SELECT * FROM person_facts WHERE member_id = ? ORDER BY extracted_at DESC";
+  const params: unknown[] = limit ? [memberId, limit] : [memberId];
+  const rows = await d.select<Array<Omit<PersonFact, "evidence_ids"> & { evidence_ids: string }>>(sql, params);
+  return rows.map((r) => ({
+    ...r,
+    evidence_ids: JSON.parse(r.evidence_ids) as number[],
+  }));
+}
+
+export async function getPersonFactCount(memberId: number): Promise<number> {
+  const d = await db();
+  const rows = await d.select<Array<{ cnt: number }>>(
+    "SELECT COUNT(*) as cnt FROM person_facts WHERE member_id = ?",
+    [memberId]
+  );
+  return rows[0]?.cnt ?? 0;
+}
+
+// ---- Query history -------------------------------------------------------
+
+export async function getQueryHistory(memberId: number): Promise<QueryHistoryItem[]> {
+  const d = await db();
+  return d.select<QueryHistoryItem[]>(
+    "SELECT * FROM query_history WHERE member_id = ? ORDER BY created_at DESC",
+    [memberId]
+  );
+}
+
+export async function saveQueryAnswer(
+  memberId: number,
+  query: string,
+  answer: string
+): Promise<void> {
+  const d = await db();
+  await d.execute(
+    "INSERT INTO query_history(member_id, query, answer) VALUES(?,?,?)",
+    [memberId, query, answer]
   );
 }
