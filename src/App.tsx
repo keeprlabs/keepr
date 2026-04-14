@@ -8,6 +8,7 @@ import { Titlebar } from "./components/Titlebar";
 import { Sidebar, type ViewKey } from "./components/Sidebar";
 import { CommandPalette, type CommandAction } from "./components/CommandPalette";
 import { SessionReader } from "./components/SessionReader";
+import { PersonDetail } from "./components/PersonDetail";
 import { RunOverlay, type RunState } from "./components/RunOverlay";
 import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
@@ -540,16 +541,16 @@ export default function App() {
               title={view.file === "status" ? "status.md" : "memory.md"}
             />
           )}
-          {view.kind === "person" && (
-            <MemoryView
-              relPath={`people/${
-                members.find((m) => m.id === view.memberId)?.slug || ""
-              }.md`}
-              title={
-                members.find((m) => m.id === view.memberId)?.display_name || ""
-              }
-            />
-          )}
+          {view.kind === "person" &&
+            (() => {
+              const m = members.find((m) => m.id === view.memberId);
+              return m ? (
+                <PersonDetail
+                  member={m}
+                  onBack={() => setView({ kind: "home" })}
+                />
+              ) : null;
+            })()}
           {view.kind === "topic" && (
             <MemoryView
               relPath={`topics/${view.slug}.md`}
