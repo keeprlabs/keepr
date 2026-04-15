@@ -1,7 +1,6 @@
-<h1 align="center">
-  <img src="src-tauri/icons/icon.png" width="36" alt="Keepr icon" style="vertical-align: middle;" />
-  Keepr
-</h1>
+<p align="center">
+  <img src="public/wordmark.png" width="154" alt="Keepr" />
+</p>
 
 <p align="center">
   <strong>AI memory layer for engineering managers. Local-first. No backend. No account.</strong>
