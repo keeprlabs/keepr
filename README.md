@@ -18,17 +18,11 @@ Keepr is a desktop app that turns your team's Slack and GitHub exhaust into cite
 
 Point it at your Slack workspace and a handful of GitHub repos, pick an LLM provider, and Keepr produces an evidence-backed team pulse or 1:1 prep in about a minute. It is a desktop app, not a SaaS. No backend, no account, no analytics.
 
-## Screenshots
+## Demo
 
-The app ships with a Granola-inspired monochromatic light theme. Inter for UI, Newsreader for display headings, JetBrains Mono for code.
-
-<!-- Screenshots live in docs/screenshots/. Replace these placeholders before the public invite. -->
-<!-- ![Home](docs/screenshots/home.png) -->
-<!-- ![Team Pulse](docs/screenshots/team-pulse.png) -->
-<!-- ![1:1 Prep](docs/screenshots/one-on-one.png) -->
-<!-- ![Onboarding](docs/screenshots/onboarding.png) -->
-
-See [`docs/screenshots/`](docs/screenshots/) for the reference list and capture guidelines.
+<p align="center">
+  <img src="docs/screenshots/demo.gif" width="720" alt="Keepr demo" />
+</p>
 
 ## Features
 
