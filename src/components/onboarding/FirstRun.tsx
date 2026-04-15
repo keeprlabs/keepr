@@ -42,9 +42,10 @@ export function FirstRun({ demoMode, onOpenPalette, onRunFirstPulse }: Props) {
 
         <button
           onClick={onRunFirstPulse}
-          className="mt-14 text-sm text-ink-soft underline decoration-hairline decoration-2 underline-offset-4 hover:decoration-ink/30 transition-colors"
+          className="mt-14 inline-flex items-center gap-2 text-sm text-ink-soft transition-colors hover:text-ink"
         >
-          or run team pulse now →
+          <span className="inline-block h-[6px] w-[6px] rounded-full bg-ink-faint" />
+          Run first pulse now
         </button>
       </div>
     </div>

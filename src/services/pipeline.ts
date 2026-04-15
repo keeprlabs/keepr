@@ -21,8 +21,10 @@ import type {
 } from "../lib/types";
 import {
   createSession,
+  deleteSession,
   getConfig,
   insertEvidence,
+  insertPersonFacts,
   listMembers,
   setSessionStatus,
   updateSession,
@@ -37,6 +39,7 @@ import { fetchProjectActivity, type FetchedJiraIssue } from "./jira";
 import { fetchTeamActivity, type FetchedLinearIssue } from "./linear";
 import { getProvider, setCustomConfig } from "./llm";
 import { writeMemory, readMemoryContext } from "./memory";
+import { throwIfAborted, isAbortError } from "../lib/abort";
 
 // ---- Normalization -------------------------------------------------------
 
@@ -281,7 +284,10 @@ function resolveActor(
     if (m) return m;
   }
   if (item.actor_slack) {
-    const m = members.find((x) => x.slack_user_id === item.actor_slack);
+    const slackId = item.actor_slack.trim().toUpperCase();
+    const m = members.find(
+      (x) => (x.slack_user_id || "").trim().toUpperCase() === slackId
+    );
     if (m) return m;
   }
   if (item.actor_jira) {
@@ -341,6 +347,11 @@ export interface RunOptions {
   daysBack: number;
   forceRefresh?: boolean;
   onProgress?: (stage: string, detail?: string) => void;
+  // When set, the pipeline checks signal.aborted at every loop boundary
+  // and passes the signal down to every HTTP call. On abort the session
+  // row is DELETED (not marked failed) so cancelled runs don't clutter
+  // the sidebar. See src/lib/abort.ts.
+  signal?: AbortSignal;
 }
 
 export interface RunResult {
@@ -386,10 +397,16 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     // and the second run fetched only items after "now" → zero items.
     // The cache is valuable for retry-within-a-session (not yet built),
     // not for blocking fresh sessions from seeing the full window.
-    const fetchOpts = { forceRefresh: true };
+    //
+    // `signal` flows into each fetch helper so HTTP calls abort mid-flight
+    // on user cancel. Every inner catch re-throws `isAbortError(err)` so
+    // a cancelled run doesn't get silently reduced to "that source failed,
+    // let's try the next one". See src/lib/abort.ts.
+    const fetchOpts = { forceRefresh: true, signal: opts.signal };
 
     // GitHub
     for (const repo of cfg.selected_github_repos) {
+      throwIfAborted(opts.signal);
       progress("fetch", `GitHub: ${repo.owner}/${repo.repo}`);
       try {
         const prs = await fetchRepoActivity(
@@ -400,6 +417,7 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         );
         allItems.push(...normalizeGithub(prs, `${repo.owner}/${repo.repo}`));
       } catch (err) {
+        if (isAbortError(err)) throw err;
         console.warn("github fetch failed", repo, err);
       }
     }
@@ -409,11 +427,13 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     try {
       const info = await slackAuthTest();
       teamDomain = info.team.toLowerCase().replace(/[^a-z0-9-]/g, "");
-    } catch {
+    } catch (err) {
+      if (isAbortError(err)) throw err;
       // ignore — if slack isn't connected we just skip
     }
 
     for (const ch of cfg.selected_slack_channels) {
+      throwIfAborted(opts.signal);
       progress("fetch", `Slack: #${ch.name}`);
       try {
         const msgs = await fetchChannelHistory(
@@ -424,12 +444,14 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         );
         allItems.push(...normalizeSlack(msgs));
       } catch (err) {
+        if (isAbortError(err)) throw err;
         console.warn("slack fetch failed", ch, err);
       }
     }
 
     // Jira
     for (const proj of cfg.selected_jira_projects || []) {
+      throwIfAborted(opts.signal);
       progress("fetch", `Jira: ${proj.key}`);
       try {
         const issues = await fetchProjectActivity(
@@ -439,12 +461,14 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         );
         allItems.push(...normalizeJira(issues, proj.key));
       } catch (err) {
+        if (isAbortError(err)) throw err;
         console.warn("jira fetch failed", proj, err);
       }
     }
 
     // Linear
     for (const team of cfg.selected_linear_teams || []) {
+      throwIfAborted(opts.signal);
       progress("fetch", `Linear: ${team.key}`);
       try {
         const issues = await fetchTeamActivity(
@@ -455,10 +479,12 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         );
         allItems.push(...normalizeLinear(issues, team.key));
       } catch (err) {
+        if (isAbortError(err)) throw err;
         console.warn("linear fetch failed", team, err);
       }
     }
 
+    throwIfAborted(opts.signal);
     progress("prune", `Pruning ${allItems.length} raw items`);
 
     // Pre-check: bail early with a specific message if no data sources
@@ -512,9 +538,13 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
       // Log a diagnostic so the user can fix their mappings.
       const seenGh = new Set<string>();
       const seenSlack = new Set<string>();
+      const seenJira = new Set<string>();
+      const seenLinear = new Set<string>();
       for (const it of pruned) {
         if (it.actor_github) seenGh.add(it.actor_github);
         if (it.actor_slack) seenSlack.add(it.actor_slack);
+        if (it.actor_jira) seenJira.add(it.actor_jira);
+        if (it.actor_linear) seenLinear.add(it.actor_linear);
       }
       const configuredGh = members
         .filter((m) => m.github_handle)
@@ -522,16 +552,44 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
       const configuredSlack = members
         .filter((m) => m.slack_user_id)
         .map((m) => m.slack_user_id!);
+      const configuredJira = members
+        .filter((m) => m.jira_username)
+        .map((m) => m.jira_username!);
+      const configuredLinear = members
+        .filter((m) => m.linear_username)
+        .map((m) => m.linear_username!);
+
+      const diagnosticLines: string[] = [];
+      if (seenGh.size || configuredGh.length) {
+        diagnosticLines.push(
+          `GitHub in data: ${[...seenGh].join(", ") || "(none)"} | configured: ${configuredGh.join(", ") || "(none)"}`
+        );
+      }
+      if (seenSlack.size || configuredSlack.length) {
+        diagnosticLines.push(
+          `Slack in data: ${[...seenSlack].join(", ") || "(none)"} | configured: ${configuredSlack.join(", ") || "(none)"}`
+        );
+      }
+      if (seenJira.size || configuredJira.length) {
+        diagnosticLines.push(
+          `Jira in data: ${[...seenJira].join(", ") || "(none)"} | configured: ${configuredJira.join(", ") || "(none)"}`
+        );
+      }
+      if (seenLinear.size || configuredLinear.length) {
+        diagnosticLines.push(
+          `Linear in data: ${[...seenLinear].join(", ") || "(none)"} | configured: ${configuredLinear.join(", ") || "(none)"}`
+        );
+      }
+
+      const diagnosticMsg =
+        "No items matched team members. Using all activity (unattributed).\n" +
+        diagnosticLines.join("\n") +
+        "\nFix: update team member mappings in Settings.";
 
       // eslint-disable-next-line no-console
-      console.warn(
-        "[keepr] No items matched team members. Falling through with all activity.\n" +
-          `  GitHub handles in data: ${[...seenGh].join(", ") || "(none)"}\n` +
-          `  GitHub handles configured: ${configuredGh.join(", ") || "(none)"}\n` +
-          `  Slack IDs in data: ${[...seenSlack].join(", ") || "(none)"}\n` +
-          `  Slack IDs configured: ${configuredSlack.join(", ") || "(none)"}\n` +
-          "  Fix: update team member mappings in Settings → Team members."
-      );
+      console.warn(`[keepr] ${diagnosticMsg}`);
+      // Surface the diagnostic to the UI via the prune stage detail.
+      progress("prune", "No team member matches found. Check Settings.");
       // Keep all pruned items so the pipeline still produces output.
     }
 
@@ -569,6 +627,7 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     }
 
     // ---- Map (Haiku per bucket) ----
+    throwIfAborted(opts.signal);
     if (cfg.llm_provider === "custom") {
       setCustomConfig({
         base_url: cfg.custom_llm_base_url,
@@ -585,6 +644,7 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     const bucketSummaries: string[] = [];
 
     for (const [bucket, arr] of buckets) {
+      throwIfAborted(opts.signal);
       const evidenceJson = buildEvidenceJson(arr, members, timeRange, opts.workflow);
       try {
         const r = await provider.complete({
@@ -598,6 +658,7 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
           ],
           max_tokens: 600,
           temperature: 0.1,
+          signal: opts.signal,
         });
         totalInput += r.input_tokens;
         totalOutput += r.output_tokens;
@@ -606,8 +667,85 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
           bucketSummaries.push(`### Source: ${bucket}\n\n${text}`);
         }
       } catch (err) {
+        if (isAbortError(err)) throw err;
         console.warn("haiku map failed for bucket", bucket, err);
         haikuFailed = true;
+      }
+    }
+
+    // ---- Fact extraction (additive — failures never break the pipeline) ----
+    for (const [bucket, arr] of buckets) {
+      try {
+        const evidenceJson = buildEvidenceJson(arr, members, timeRange, opts.workflow);
+        const factPrompt = `Extract 2-5 structured facts about specific people from this evidence. Return ONLY valid JSON. Format: {"facts": [{"member_name": "Name", "fact_type": "shipped|reviewed|discussed|blocked|collaborated|led", "summary": "One-line summary", "evidence_ids": ["ev_1", "ev_2"]}]}`;
+        const factResult = await provider.complete({
+          model: cfg.classifier_model,
+          system: factPrompt,
+          messages: [
+            {
+              role: "user",
+              content: `Source bucket: ${bucket}\n\nEvidence JSON:\n\`\`\`json\n${evidenceJson}\n\`\`\``,
+            },
+          ],
+          max_tokens: 600,
+          temperature: 0.1,
+        });
+        totalInput += factResult.input_tokens;
+        totalOutput += factResult.output_tokens;
+
+        let parsed: { facts: Array<{ member_name: string; fact_type: string; summary: string; evidence_ids: string[] }> } | null = null;
+        try {
+          parsed = JSON.parse(factResult.text.trim());
+        } catch {
+          // Try regex extraction if direct parse fails
+          const match = factResult.text.match(/\{[\s\S]*"facts"[\s\S]*\}/);
+          if (match) {
+            try {
+              parsed = JSON.parse(match[0]);
+            } catch {
+              console.warn("[keepr] fact extraction: failed to parse JSON from bucket", bucket);
+            }
+          }
+        }
+
+        if (parsed?.facts?.length) {
+          const resolvedFacts: Array<{
+            member_id: number;
+            fact_type: string;
+            summary: string;
+            evidence_ids: number[];
+          }> = [];
+
+          for (const fact of parsed.facts) {
+            // Resolve member_name to member_id via case-insensitive match
+            const nameLow = (fact.member_name || "").toLowerCase();
+            const member = members.find(
+              (m) =>
+                m.display_name.toLowerCase() === nameLow ||
+                (m.github_handle || "").toLowerCase() === nameLow ||
+                (m.slack_user_id || "").toLowerCase() === nameLow
+            );
+            if (!member) continue;
+
+            // Convert ev_N strings to integer indices
+            const evidenceIds = (fact.evidence_ids || [])
+              .map((e) => parseInt(String(e).replace(/^ev_/, ""), 10))
+              .filter((n) => !isNaN(n));
+
+            resolvedFacts.push({
+              member_id: member.id,
+              fact_type: fact.fact_type,
+              summary: fact.summary,
+              evidence_ids: evidenceIds,
+            });
+          }
+
+          if (resolvedFacts.length > 0) {
+            await insertPersonFacts(sessionId, resolvedFacts);
+          }
+        }
+      } catch (err) {
+        console.warn("[keepr] fact extraction failed for bucket", bucket, err);
       }
     }
 
@@ -638,6 +776,7 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     });
 
     // ---- Reduce (Sonnet) ----
+    throwIfAborted(opts.signal);
     progress("synthesize", "Synthesizing the final output");
     const systemPrompt =
       opts.workflow === "team_pulse" ? teamPulsePrompt
@@ -681,6 +820,7 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
       messages: [{ role: "user", content: userBlock }],
       max_tokens: isLongForm ? 5000 : 3000,
       temperature: 0.25,
+      signal: opts.signal,
     });
     totalInput += synth.input_tokens;
     totalOutput += synth.output_tokens;
@@ -724,6 +864,17 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
 
     return { sessionId, outputPath, markdown, costUsd };
   } catch (err: any) {
+    // User cancelled the run. Delete the session row (and cascade its
+    // evidence) so a misclick doesn't clutter the sidebar. Re-throw the
+    // AbortError so App.tsx can clear runState without showing a toast.
+    if (isAbortError(err)) {
+      try {
+        await deleteSession(sessionId);
+      } catch (delErr) {
+        console.warn("pipeline: failed to delete cancelled session row", delErr);
+      }
+      throw err;
+    }
     console.error("pipeline failed", err);
     await setSessionStatus(sessionId, "failed", err?.message || String(err));
     throw err;

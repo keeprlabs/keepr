@@ -9,7 +9,7 @@ import { readFileIfExists } from "../services/fsio";
 import { renderMarkdown } from "../lib/markdown";
 
 interface Props {
-  relPath: string; // e.g. "status.md", "memory.md", "people/sarah.md"
+  relPath: string; // e.g. "status.md", "memory.md", "people/sarah.md", "topics/auth.md"
   title: string;
 }
 
@@ -40,7 +40,7 @@ export function MemoryView({ relPath, title }: Props) {
           {title}
         </h1>
         {contents === null ? (
-          <EmptyState />
+          <EmptyState relPath={relPath} />
         ) : (
           <div
             className="reading"
@@ -54,16 +54,49 @@ export function MemoryView({ relPath, title }: Props) {
   );
 }
 
-function EmptyState() {
+function emptyHint(relPath: string): { headline: string; body: string } {
+  if (relPath === "status.md") {
+    return {
+      headline: "Status writes itself.",
+      body: "After each team pulse or weekly update, Keepr overwrites this file with the latest generated output. You can add your own notes in the Manual notes section and they'll survive every regeneration.",
+    };
+  }
+  if (relPath === "memory.md") {
+    return {
+      headline: "This is Keepr's long-term memory.",
+      body: "After each session, observed facts are appended here. Memory persists across sessions and is yours to edit. The more you use Keepr, the sharper its output becomes.",
+    };
+  }
+  if (relPath.startsWith("people/")) {
+    return {
+      headline: "No observations yet.",
+      body: "Run a 1:1 prep or team pulse that includes this person. Keepr will start recording observed facts here, one session at a time.",
+    };
+  }
+  if (relPath.startsWith("topics/")) {
+    return {
+      headline: "This topic hasn't been observed yet.",
+      body: "Topics are created automatically when the LLM identifies recurring themes across sessions. Run a few sessions and they'll start appearing.",
+    };
+  }
+  return {
+    headline: "Nothing here yet.",
+    body: "Run a workflow and Keepr will begin composing this file for you.",
+  };
+}
+
+function EmptyState({ relPath }: { relPath: string }) {
+  const { headline, body } = emptyHint(relPath);
   return (
     <div className="py-8">
       <div className="text-xxs uppercase tracking-[0.14em] text-ink-faint">
-        Nothing here yet
+        Empty
       </div>
       <p className="display-serif mt-3 text-[22px] leading-[1.25] text-ink-muted">
-        Run a team pulse and Keepr will begin
-        <br />
-        composing this file for you.
+        {headline}
+      </p>
+      <p className="mt-4 max-w-[52ch] text-sm leading-relaxed text-ink-faint">
+        {body}
       </p>
       <div className="mt-6 flex items-center gap-2 text-xs text-ink-faint">
         <span className="mono">⌘K</span>

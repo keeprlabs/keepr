@@ -302,16 +302,16 @@ export function CommandPalette({
         <div className="hair-t flex items-center justify-between px-5 py-2.5 text-[10px] text-ink-faint">
           <div className="flex gap-4">
             <span className="flex items-center gap-1.5">
-              <span className="kbd">↑</span>
-              <span className="kbd">↓</span>
+              <kbd className="kbd" aria-label="up arrow">↑</kbd>
+              <kbd className="kbd" aria-label="down arrow">↓</kbd>
               navigate
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="kbd">↵</span>
+              <kbd className="kbd" aria-label="enter">↵</kbd>
               run
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="kbd">esc</span>
+              <kbd className="kbd" aria-label="escape">esc</kbd>
               close
             </span>
           </div>

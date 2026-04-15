@@ -180,6 +180,33 @@ DROP TABLE integrations;
 ALTER TABLE integrations_v5 RENAME TO integrations;
 "#,
         },
+        Migration {
+            version: 6,
+            description: "person_facts_and_query_history",
+            kind: MigrationKind::Up,
+            sql: r#"
+CREATE TABLE person_facts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  member_id INTEGER NOT NULL,
+  session_id INTEGER NOT NULL,
+  fact_type TEXT NOT NULL CHECK (fact_type IN ('shipped','reviewed','discussed','blocked','collaborated','led')),
+  summary TEXT NOT NULL,
+  evidence_ids TEXT NOT NULL DEFAULT '[]',
+  extracted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_person_facts_member ON person_facts(member_id);
+CREATE INDEX idx_person_facts_session ON person_facts(session_id);
+
+CREATE TABLE query_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  member_id INTEGER NOT NULL,
+  query TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_query_history_member ON query_history(member_id);
+"#,
+        },
     ]
 }
 

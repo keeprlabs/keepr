@@ -28,7 +28,6 @@ export function Settings() {
   const [slackChannels, setSlackChannels] = useState<slack.SlackChannel[]>([]);
   const [ghRepos, setGhRepos] = useState<Array<{ full_name: string; owner: { login: string } }>>([]);
   const [llmKey, setLlmKey] = useState("");
-  const [llmSaveStatus, setLlmSaveStatus] = useState<"idle" | "saved" | "error">("idle");
   const [slackToken, setSlackToken] = useState("");
   const [ghToken, setGhToken] = useState("");
   const [jiraEmail, setJiraEmail] = useState("");
@@ -37,6 +36,13 @@ export function Settings() {
   const [jiraProjects, setJiraProjects] = useState<jira.JiraProjectRemote[]>([]);
   const [linearKey, setLinearKey] = useState("");
   const [linearTeams, setLinearTeams] = useState<linear.LinearTeamRemote[]>([]);
+  const [llmSaveStatus, setLlmSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [slackUsers, setSlackUsers] = useState<slack.SlackUser[]>([]);
+  const [slackUsersLoaded, setSlackUsersLoaded] = useState(false);
+  const [jiraUsers, setJiraUsers] = useState<jira.JiraUser[]>([]);
+  const [jiraUsersLoaded, setJiraUsersLoaded] = useState(false);
+  const [linearUsers, setLinearUsers] = useState<linear.LinearUser[]>([]);
+  const [linearUsersLoaded, setLinearUsersLoaded] = useState(false);
 
   const load = async () => {
     const freshCfg = await getConfig();
@@ -215,10 +221,7 @@ export function Settings() {
                     className={inputCls}
                     value={llmKey}
                     placeholder="sk-…"
-                    onChange={(e) => {
-                      setLlmKey(e.target.value);
-                      if (llmSaveStatus !== "idle") setLlmSaveStatus("idle");
-                    }}
+                    onChange={(e) => setLlmKey(e.target.value)}
                   />
                   <Ghost onClick={saveKey}>
                     {llmSaveStatus === "saved" ? "Saved" : llmSaveStatus === "error" ? "Failed" : "Save"}
@@ -231,7 +234,7 @@ export function Settings() {
             );
           })()}
           <Field label="Synthesis model">
-            <input
+            <AutoSaveInput
               className={inputCls}
               value={cfg.llm_provider === "custom" ? (cfg.custom_llm_synthesis_model || "") : cfg.synthesis_model}
               placeholder={cfg.llm_provider === "custom" ? "e.g. llama3.1:70b" : undefined}
@@ -242,17 +245,17 @@ export function Settings() {
                   setCfg({ ...cfg, synthesis_model: e.target.value });
                 }
               }}
-              onBlur={() => {
+              onSave={async () => {
                 if (cfg.llm_provider === "custom") {
-                  setConfig({ custom_llm_synthesis_model: cfg.custom_llm_synthesis_model, synthesis_model: cfg.custom_llm_synthesis_model });
+                  await setConfig({ custom_llm_synthesis_model: cfg.custom_llm_synthesis_model, synthesis_model: cfg.custom_llm_synthesis_model });
                 } else {
-                  setConfig({ synthesis_model: cfg.synthesis_model });
+                  await setConfig({ synthesis_model: cfg.synthesis_model });
                 }
               }}
             />
           </Field>
           <Field label="Classifier model">
-            <input
+            <AutoSaveInput
               className={inputCls}
               value={cfg.llm_provider === "custom" ? (cfg.custom_llm_classifier_model || "") : cfg.classifier_model}
               placeholder={cfg.llm_provider === "custom" ? "e.g. llama3.1:8b" : undefined}
@@ -263,11 +266,11 @@ export function Settings() {
                   setCfg({ ...cfg, classifier_model: e.target.value });
                 }
               }}
-              onBlur={() => {
+              onSave={async () => {
                 if (cfg.llm_provider === "custom") {
-                  setConfig({ custom_llm_classifier_model: cfg.custom_llm_classifier_model, classifier_model: cfg.custom_llm_classifier_model });
+                  await setConfig({ custom_llm_classifier_model: cfg.custom_llm_classifier_model, classifier_model: cfg.custom_llm_classifier_model });
                 } else {
-                  setConfig({ classifier_model: cfg.classifier_model });
+                  await setConfig({ classifier_model: cfg.classifier_model });
                 }
               }}
             />
@@ -278,13 +281,12 @@ export function Settings() {
           <Field label="Bot token">
             <div className="flex gap-2">
               <input type="password" className={inputCls} value={slackToken} onChange={(e) => setSlackToken(e.target.value)} />
-              <Ghost onClick={async () => {
+              <SaveButton onSave={async () => {
                 await setSecret(SECRET_KEYS.slackBot, slackToken);
                 if (slackToken.trim()) {
                   await upsertIntegration("slack", {});
                 }
-                alert("Saved");
-              }}>Save</Ghost>
+              }} />
             </div>
           </Field>
           <div className="mb-3">
@@ -325,13 +327,12 @@ export function Settings() {
           <Field label="Personal access token">
             <div className="flex gap-2">
               <input type="password" className={inputCls} value={ghToken} onChange={(e) => setGhToken(e.target.value)} />
-              <Ghost onClick={async () => {
+              <SaveButton onSave={async () => {
                 await setSecret(SECRET_KEYS.github, ghToken);
                 if (ghToken.trim()) {
                   await upsertIntegration("github", {});
                 }
-                alert("Saved");
-              }}>Save</Ghost>
+              }} />
             </div>
           </Field>
           <div className="mb-3">
@@ -368,7 +369,7 @@ export function Settings() {
           <Field label="Atlassian Cloud URL">
             <div className="flex gap-2">
               <input className={inputCls} value={jiraUrl} placeholder="https://your-org.atlassian.net" onChange={(e) => setJiraUrl(e.target.value)} />
-              <Ghost onClick={async () => { await setConfig({ jira_cloud_url: jiraUrl }); alert("Saved"); }}>Save</Ghost>
+              <SaveButton onSave={async () => { await setConfig({ jira_cloud_url: jiraUrl }); }} />
             </div>
           </Field>
           <Field label="Email">
@@ -377,15 +378,14 @@ export function Settings() {
           <Field label="API token">
             <div className="flex gap-2">
               <input type="password" className={inputCls} value={jiraToken} placeholder="Jira API token" onChange={(e) => setJiraToken(e.target.value)} />
-              <Ghost onClick={async () => {
+              <SaveButton onSave={async () => {
                 await setSecret(SECRET_KEYS.jiraEmail, jiraEmail);
                 await setSecret(SECRET_KEYS.jiraToken, jiraToken);
                 await setConfig({ jira_cloud_url: jiraUrl });
                 if (jiraEmail.trim() && jiraToken.trim()) {
                   await upsertIntegration("jira", { email: jiraEmail.trim() });
                 }
-                alert("Saved");
-              }}>Save</Ghost>
+              }} />
               <Ghost onClick={() => openExternal("https://id.atlassian.com/manage-profile/security/api-tokens")}>Get token</Ghost>
             </div>
           </Field>
@@ -429,13 +429,12 @@ export function Settings() {
           <Field label="API key">
             <div className="flex gap-2">
               <input type="password" className={inputCls} value={linearKey} placeholder="lin_api_..." onChange={(e) => setLinearKey(e.target.value)} />
-              <Ghost onClick={async () => {
+              <SaveButton onSave={async () => {
                 await setSecret(SECRET_KEYS.linear, linearKey);
                 if (linearKey.trim()) {
                   await upsertIntegration("linear", {});
                 }
-                alert("Saved");
-              }}>Save</Ghost>
+              }} />
               <Ghost onClick={() => openExternal("https://linear.app/settings/account/security")}>Get key</Ghost>
             </div>
           </Field>
@@ -494,27 +493,62 @@ export function Settings() {
                   />
                 </div>
                 <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
-                  <input
-                    className={inputCls}
-                    placeholder="Slack user ID"
+                  <SlackUserPicker
                     value={m.slack_user_id || ""}
-                    onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, slack_user_id: e.target.value } : x))}
+                    slackUsers={slackUsers}
+                    slackUsersLoaded={slackUsersLoaded}
+                    onLoadUsers={async () => {
+                      if (slackUsersLoaded) return;
+                      try {
+                        const users = await slack.listUsers();
+                        setSlackUsers(users);
+                        setSlackUsersLoaded(true);
+                      } catch (e: any) {
+                        alert(`Could not load Slack users: ${e.message}`);
+                      }
+                    }}
+                    onChange={(uid) => setMembers(members.map((x) => x.id === m.id ? { ...x, slack_user_id: uid || null } : x))}
                   />
-                  <input
-                    className={inputCls}
-                    placeholder="Jira display name"
+                  <UserPicker
                     value={m.jira_username || ""}
-                    onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, jira_username: e.target.value } : x))}
+                    placeholder="Select Jira user"
+                    options={jiraUsers.map((u) => ({ value: u.displayName, label: u.displayName, detail: u.emailAddress }))}
+                    loaded={jiraUsersLoaded}
+                    onLoad={async () => {
+                      if (jiraUsersLoaded) return;
+                      try {
+                        const firstProject = cfg.selected_jira_projects?.[0];
+                        const users = firstProject
+                          ? await jira.listProjectMembers(firstProject.key)
+                          : [];
+                        setJiraUsers(users);
+                        setJiraUsersLoaded(true);
+                      } catch (e: any) {
+                        alert(`Could not load Jira users: ${e.message}`);
+                      }
+                    }}
+                    onChange={(v) => setMembers(members.map((x) => x.id === m.id ? { ...x, jira_username: v || null } : x))}
                   />
-                  <input
-                    className={inputCls}
-                    placeholder="Linear display name"
+                  <UserPicker
                     value={m.linear_username || ""}
-                    onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, linear_username: e.target.value } : x))}
+                    placeholder="Select Linear user"
+                    options={linearUsers.map((u) => ({ value: u.displayName || u.name, label: u.displayName || u.name, detail: u.email }))}
+                    loaded={linearUsersLoaded}
+                    onLoad={async () => {
+                      if (linearUsersLoaded) return;
+                      try {
+                        const users = await linear.listOrgMembers();
+                        setLinearUsers(users);
+                        setLinearUsersLoaded(true);
+                      } catch (e: any) {
+                        alert(`Could not load Linear users: ${e.message}`);
+                      }
+                    }}
+                    onChange={(v) => setMembers(members.map((x) => x.id === m.id ? { ...x, linear_username: v || null } : x))}
                   />
                 </div>
                 <div className="flex items-center gap-2">
-                  <Ghost onClick={async () => {
+                  <SaveButton onSave={async () => {
                     await upsertMember({
                       id: m.id,
                       display_name: m.display_name,
@@ -524,8 +558,8 @@ export function Settings() {
                       linear_username: m.linear_username,
                       slug: slugify(m.display_name),
                     });
-                    load();
-                  }}>Save</Ghost>
+                    await load();
+                  }} />
                   <button onClick={async () => { await deleteMember(m.id); load(); }} className="text-xs text-ink-faint hover:text-ink">delete</button>
                 </div>
               </div>
@@ -543,12 +577,12 @@ export function Settings() {
           <p className="mb-3 text-xs text-ink-faint">
             Paste your engineering ladder as markdown. Used by perf evaluation and promo readiness workflows.
           </p>
-          <textarea
-            className={`${inputCls} min-h-[120px] resize-y font-mono text-xs`}
+          <RubricTextarea
             value={cfg.engineering_rubric || ""}
-            placeholder={"# Engineering Ladder\n\n## L3 — Mid-level\n- Technical execution: ...\n- Collaboration: ...\n\n## L4 — Senior\n- Technical execution: ...\n- Collaboration: ..."}
-            onChange={(e) => setCfg({ ...cfg, engineering_rubric: e.target.value })}
-            onBlur={() => setConfig({ engineering_rubric: cfg.engineering_rubric || null })}
+            onChange={(v) => setCfg({ ...cfg, engineering_rubric: v })}
+            onSave={() =>
+              setConfig({ engineering_rubric: cfg.engineering_rubric || null })
+            }
           />
         </Panel>
 
@@ -651,5 +685,256 @@ function Ghost(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
       {...props}
       className="inline-flex items-center gap-2 whitespace-nowrap rounded-md border border-hairline bg-canvas px-3 py-2 text-xs text-ink-soft transition-all duration-180 ease-calm hover:border-ink/20 hover:text-ink"
     />
+  );
+}
+
+// Consistent save-state button. Replaces Ghost for every save action.
+// Manages its own idle → saving → saved → error lifecycle. aria-live
+// announces state changes to screen readers.
+function SaveButton({
+  onSave,
+  label = "Save",
+}: {
+  onSave: () => Promise<void>;
+  label?: string;
+}) {
+  const [status, setStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  return (
+    <button
+      disabled={status === "saving"}
+      onClick={async () => {
+        setStatus("saving");
+        try {
+          await onSave();
+          setStatus("saved");
+          setTimeout(() => setStatus("idle"), 1800);
+        } catch {
+          setStatus("error");
+          setTimeout(() => setStatus("idle"), 3000);
+        }
+      }}
+      className={`inline-flex items-center gap-2 whitespace-nowrap rounded-md border px-3 py-2 text-xs transition-all duration-180 ease-calm ${
+        status === "saved"
+          ? "border-ink/20 text-ink-muted"
+          : status === "error"
+          ? "border-red-300 text-red-600"
+          : "border-hairline text-ink-soft hover:border-ink/20 hover:text-ink"
+      }`}
+      aria-live="polite"
+    >
+      {status === "saving"
+        ? "Saving\u2026"
+        : status === "saved"
+        ? "Saved"
+        : status === "error"
+        ? "Failed"
+        : label}
+    </button>
+  );
+}
+
+// Slack user picker — loads workspace users on first focus, shows a select
+// dropdown with human-readable names but stores the actual Slack user ID
+// (e.g. U05RQAXHBL7). This eliminates the #1 matching failure: users
+// entering display names instead of opaque user IDs.
+function SlackUserPicker({
+  value,
+  slackUsers,
+  slackUsersLoaded,
+  onLoadUsers,
+  onChange,
+}: {
+  value: string;
+  slackUsers: slack.SlackUser[];
+  slackUsersLoaded: boolean;
+  onLoadUsers: () => Promise<void>;
+  onChange: (uid: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  const handleFocus = async () => {
+    if (slackUsersLoaded || loading) return;
+    setLoading(true);
+    await onLoadUsers();
+    setLoading(false);
+  };
+
+  // Show the selected user's name next to the dropdown for confirmation
+  const selectedUser = slackUsers.find((u) => u.id === value);
+  const label = selectedUser
+    ? selectedUser.profile?.real_name || selectedUser.real_name || selectedUser.name
+    : null;
+
+  return (
+    <div className="relative">
+      <select
+        className={inputCls + " appearance-none pr-7"}
+        value={value}
+        onFocus={handleFocus}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">
+          {loading ? "Loading users\u2026" : "Select Slack user"}
+        </option>
+        {/* If a value is set but users haven't loaded yet, show a placeholder option */}
+        {value && !selectedUser && (
+          <option value={value}>{value} (not resolved)</option>
+        )}
+        {slackUsers.map((u) => {
+          const display = u.profile?.real_name || u.real_name || u.name;
+          return (
+            <option key={u.id} value={u.id}>
+              {display} ({u.name})
+            </option>
+          );
+        })}
+      </select>
+      {/* Dropdown chevron */}
+      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </div>
+  );
+}
+
+/** Generic user picker dropdown. Lazy-loads options on focus. */
+function UserPicker({
+  value,
+  placeholder,
+  options,
+  loaded,
+  onLoad,
+  onChange,
+}: {
+  value: string;
+  placeholder: string;
+  options: Array<{ value: string; label: string; detail?: string }>;
+  loaded: boolean;
+  onLoad: () => Promise<void>;
+  onChange: (v: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  const handleFocus = async () => {
+    if (loaded || loading) return;
+    setLoading(true);
+    await onLoad();
+    setLoading(false);
+  };
+
+  return (
+    <div className="relative">
+      <select
+        className={inputCls + " appearance-none pr-7"}
+        value={value}
+        onFocus={handleFocus}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">
+          {loading ? "Loading\u2026" : placeholder}
+        </option>
+        {value && !options.find((o) => o.value === value) && (
+          <option value={value}>{value}</option>
+        )}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}{o.detail ? ` (${o.detail})` : ""}
+          </option>
+        ))}
+      </select>
+      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </div>
+  );
+}
+
+// Thin wrapper around an input that auto-saves on blur and flashes
+// "Saved" briefly. For model names, rubric text, and similar fields
+// that don't need a manual Save button.
+function AutoSaveInput({
+  value,
+  onChange,
+  onSave,
+  className,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "onBlur"> & {
+  onSave: () => Promise<void>;
+}) {
+  const [flash, setFlash] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        {...rest}
+        className={className}
+        value={value}
+        onChange={onChange}
+        onBlur={async () => {
+          try {
+            await onSave();
+            setFlash(true);
+            setTimeout(() => setFlash(false), 1200);
+          } catch {
+            // silent — blur-save is best-effort
+          }
+        }}
+      />
+      <span
+        className={`pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-faint transition-opacity duration-300 ${
+          flash ? "opacity-100" : "opacity-0"
+        }`}
+        aria-live="polite"
+      >
+        {flash ? "Saved" : ""}
+      </span>
+    </div>
+  );
+}
+
+// Auto-save textarea with the same flash pattern. Used for the rubric.
+function RubricTextarea({
+  value,
+  onChange,
+  onSave,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSave: () => Promise<void>;
+}) {
+  const [flash, setFlash] = useState(false);
+  return (
+    <div className="relative">
+      <textarea
+        className={`${inputCls} min-h-[120px] resize-y font-mono text-xs`}
+        value={value}
+        placeholder={
+          "# Engineering Ladder\n\n## L3 — Mid-level\n- Technical execution: ...\n- Collaboration: ...\n\n## L4 — Senior\n- Technical execution: ...\n- Collaboration: ..."
+        }
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={async () => {
+          try {
+            await onSave();
+            setFlash(true);
+            setTimeout(() => setFlash(false), 1200);
+          } catch {
+            // silent
+          }
+        }}
+      />
+      <span
+        className={`pointer-events-none absolute right-2 bottom-3 text-[10px] text-ink-faint transition-opacity duration-300 ${
+          flash ? "opacity-100" : "opacity-0"
+        }`}
+        aria-live="polite"
+      >
+        {flash ? "Saved" : ""}
+      </span>
+    </div>
   );
 }

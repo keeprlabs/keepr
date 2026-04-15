@@ -1,5 +1,5 @@
-// Progress overlay during a workflow run. Alive but serene — a quiet
-// progress line with a shimmer, elapsed timer, and stage labels.
+// Progress overlay during a workflow run. Visual step-by-step
+// progress with elapsed timer, stage icons, and active shimmer.
 
 import { useEffect, useState } from "react";
 
@@ -20,7 +20,7 @@ const STAGES: Array<RunState["stage"]> = [
 const LABELS: Record<RunState["stage"], string> = {
   fetch: "Gathering",
   prune: "Filtering",
-  map: "Summarizing sources",
+  map: "Summarizing",
   synthesize: "Thinking",
   write: "Writing",
   done: "Ready",
@@ -43,58 +43,64 @@ function useElapsed(running: boolean) {
 export function RunOverlay({
   state,
   onDismiss,
+  onCancel,
 }: {
   state: RunState | null;
   onDismiss: () => void;
+  onCancel?: () => void;
 }) {
   if (!state) return null;
+
+  if (
+    import.meta.env.DEV &&
+    state.stage !== "done" &&
+    state.stage !== "error" &&
+    !STAGES.includes(state.stage)
+  ) {
+    console.warn(`[RunOverlay] Unknown stage "${state.stage}" — progress may be stuck.`);
+  }
+
   const stageIndex = STAGES.indexOf(state.stage);
   const isDone = state.stage === "done";
   const isError = state.stage === "error";
   const isRunning = !isDone && !isError;
-  const pct = isDone || isError
-    ? 100
-    : Math.max(8, Math.min(96, ((stageIndex + 0.5) / STAGES.length) * 100));
 
   const elapsed = useElapsed(isRunning);
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
       <div className="absolute inset-0 bg-canvas/80 backdrop-blur-[3px] rise" />
-      <div className="sheet rise relative w-[min(480px,92vw)] px-9 py-8">
+      <div className="sheet rise relative w-[min(520px,92vw)] px-9 py-8">
         {/* Logo + timer row */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2.5">
-            <svg width="20" height="20" viewBox="0 0 512 512" fill="none" aria-hidden>
+            <svg width="28" height="28" viewBox="0 0 512 512" fill="none" aria-hidden className="text-ink">
               <path d="M256 48 L256 464" stroke="currentColor" strokeWidth="42" strokeLinecap="round" />
               <path d="M256 180 L400 80" stroke="currentColor" strokeWidth="42" strokeLinecap="round" />
               <path d="M256 340 L400 440" stroke="currentColor" strokeWidth="42" strokeLinecap="round" />
               <rect x="80" y="210" width="70" height="70" rx="4" transform="rotate(45 115 245)" fill="currentColor" />
               <path d="M155 245 L256 245" stroke="currentColor" strokeWidth="20" strokeLinecap="round" />
             </svg>
-            <span className="text-xxs uppercase tracking-[0.14em] text-ink-faint">
+            <span className="text-xs font-medium uppercase tracking-[0.14em] text-ink-faint">
               Keepr
             </span>
           </div>
           {isRunning && (
-            <span className="mono text-[11px] tabular-nums text-ink-faint breathing">
+            <span className="mono text-sm tabular-nums text-ink-muted">
               {elapsed}
             </span>
           )}
         </div>
 
-        <div className="display-serif-lg mt-4 text-[30px] leading-[1.1] text-ink">
+        {/* Stage heading */}
+        <div className="display-serif-lg text-[28px] leading-[1.1] text-ink">
           {isError
             ? "Something went sideways."
             : isDone
             ? "Ready."
             : `${LABELS[state.stage]}…`}
         </div>
-        {state.detail && !isError && (
-          <div className="mt-3 text-sm text-ink-muted breathing">
-            {state.detail}
-          </div>
-        )}
+
         {state.error && (
           <div className="mt-3 text-sm text-ink-soft">
             <span className="text-ink-muted">Error: </span>
@@ -102,44 +108,71 @@ export function RunOverlay({
           </div>
         )}
 
-        {/* Progress bar with shimmer */}
-        <div className="mt-7 h-[2px] w-full overflow-hidden rounded-full bg-[rgba(10,10,10,0.06)]">
-          <div
-            className="relative h-full bg-ink transition-[width] duration-[800ms] ease-calm"
-            style={{
-              width: `${pct}%`,
-              opacity: isError ? 0.35 : 1,
-            }}
-          >
-            {isRunning && (
-              <div
-                className="absolute inset-0 slide-calm"
-                style={{
-                  background: "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.4) 50%, transparent 100%)",
-                  width: "40%",
-                }}
-              />
-            )}
-          </div>
-        </div>
-        <div className="mt-3 flex justify-between">
+        {/* Step indicators */}
+        <div className="mt-8 flex flex-col gap-0">
           {STAGES.map((s, i) => {
-            const reached = i <= stageIndex && !isError;
+            const done = i < stageIndex || isDone;
+            const active = i === stageIndex && isRunning;
             return (
-              <span
-                key={s}
-                className={`text-[10px] uppercase tracking-[0.08em] transition-colors duration-300 ${
-                  reached ? "text-ink-muted" : "text-ink-ghost"
-                }`}
-              >
-                {LABELS[s]}
-              </span>
+              <div key={s} className="flex items-center gap-3 py-[7px]">
+                <div className={`flex items-center justify-center w-5 h-5 rounded-full shrink-0 transition-all duration-300 ${
+                  done
+                    ? "bg-ink"
+                    : active
+                    ? "border-2 border-ink"
+                    : "border border-[rgba(10,10,10,0.12)]"
+                }`}>
+                  {done && (
+                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden>
+                      <path d="M2.5 6L5 8.5L9.5 3.5" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                  {active && (
+                    <div className="w-2 h-2 rounded-full bg-ink breathing" />
+                  )}
+                </div>
+                <span className={`text-xs uppercase tracking-[0.1em] transition-all duration-300 ${
+                  done
+                    ? "text-ink-muted"
+                    : active
+                    ? "text-ink font-medium"
+                    : "text-ink-ghost"
+                }`}>
+                  {LABELS[s]}
+                </span>
+                {active && state.detail && (
+                  <span className="text-xs text-ink-faint ml-auto truncate max-w-[180px]">
+                    {state.detail}
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
 
+        {isError && (
+          <div className="flex items-center gap-3 py-[7px] mt-0">
+            <div className="flex items-center justify-center w-5 h-5 rounded-full shrink-0 bg-ink/20">
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden>
+                <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </div>
+            <span className="text-xs text-ink-muted">{state.error?.slice(0, 80)}</span>
+          </div>
+        )}
+
+        {isRunning && onCancel && (
+          <div className="mt-6 flex justify-end">
+            <button
+              onClick={onCancel}
+              className="rounded-md border border-hairline bg-canvas px-4 py-2 text-sm text-ink-soft transition-colors duration-180 hover:border-ink/25 hover:text-ink"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         {(isDone || isError) && (
-          <div className="mt-7 flex justify-end gap-2">
+          <div className="mt-6 flex justify-end gap-2">
             {isError && (
               <button
                 onClick={onDismiss}

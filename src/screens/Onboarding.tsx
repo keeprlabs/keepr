@@ -72,6 +72,23 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
     const idx = DEMO_STEPS.indexOf(demoStep);
     if (idx < DEMO_STEPS.length - 1) setDemoStep(DEMO_STEPS[idx + 1]);
   };
+  // Back is a no-op at step 0. Field state inside each Step component is
+  // re-hydrated from secrets/config on mount (see StepSlack:56, StepLLM,
+  // StepGitHub etc.), so going Back to a previously saved step restores
+  // the committed values. Unsaved drafts on the current step are lost on
+  // unmount — that's acceptable for Phase 1.
+  const goBackReal = () => {
+    const idx = REAL_STEPS.indexOf(realStep);
+    if (idx > 0) setRealStep(REAL_STEPS[idx - 1]);
+  };
+  const goBackDemo = () => {
+    const idx = DEMO_STEPS.indexOf(demoStep);
+    if (idx > 0) setDemoStep(DEMO_STEPS[idx - 1]);
+  };
+  const canBack =
+    flow === "real"
+      ? REAL_STEPS.indexOf(realStep) > 0
+      : DEMO_STEPS.indexOf(demoStep) > 0;
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -81,6 +98,8 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
             flow={flow}
             realStep={realStep}
             demoStep={demoStep}
+            canBack={canBack}
+            onBack={flow === "real" ? goBackReal : goBackDemo}
             onReset={() => {
               setFlow("choose");
               setRealStep("llm");
@@ -146,11 +165,15 @@ function ProgressRail({
   flow,
   realStep,
   demoStep,
+  canBack,
+  onBack,
   onReset,
 }: {
   flow: Flow;
   realStep: RealStep;
   demoStep: DemoStep;
+  canBack: boolean;
+  onBack: () => void;
   onReset: () => void;
 }) {
   const steps =
@@ -172,6 +195,18 @@ function ProgressRail({
       >
         ← Keepr
       </button>
+      {canBack && (
+        <>
+          <span className="text-ink-ghost">·</span>
+          <button
+            onClick={onBack}
+            className="text-ink-faint hover:text-ink transition-colors"
+            title="Previous step"
+          >
+            ← Back
+          </button>
+        </>
+      )}
       <span className="text-ink-ghost">·</span>
       {flow === "demo" && (
         <>

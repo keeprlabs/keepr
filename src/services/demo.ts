@@ -30,6 +30,7 @@ import {
   db,
   getConfig,
   insertEvidence,
+  insertPersonFacts,
   listMembers,
   setConfig,
   setSessionStatus,
@@ -125,6 +126,10 @@ export async function exitDemoMode(): Promise<void> {
   await d.execute(
     "DELETE FROM evidence_items WHERE session_id IN (SELECT id FROM sessions)"
   );
+  await d.execute(
+    "DELETE FROM person_facts WHERE session_id IN (SELECT id FROM sessions)"
+  );
+  await d.execute("DELETE FROM query_history");
   await d.execute("DELETE FROM sessions");
 
   // Demo team members are identified by their demo slack_user_id prefix.
@@ -299,6 +304,11 @@ export interface DemoRunOptions {
   targetMemberId?: number | null;
   daysBack: number;
   onProgress?: (stage: string, detail?: string) => void;
+  // Accepted for API parity with RunOptions so App.tsx can pass the same
+  // args into either runner. Demo runs are instant (fixtures), so the
+  // signal is never actually checked — cancelling during demo mode has
+  // no observable effect.
+  signal?: AbortSignal;
 }
 
 export interface DemoRunResult {
@@ -412,6 +422,66 @@ export async function runDemoWorkflow(
       } catch (err) {
         console.warn("demo haiku map failed for bucket", bucket, err);
         haikuFailed = true;
+      }
+    }
+
+    // ---- Fact extraction (same logic as the real pipeline) ----
+    for (const [bucket, arr] of buckets) {
+      try {
+        const evidenceJson = buildEvidenceJson(arr, members, timeRange, opts.workflow);
+        const factPrompt = `Extract 2-5 structured facts about specific people from this evidence. Return ONLY valid JSON. Format: {"facts": [{"member_name": "Name", "fact_type": "shipped|reviewed|discussed|blocked|collaborated|led", "summary": "One-line summary", "evidence_ids": ["ev_1", "ev_2"]}]}`;
+        const factResult = await provider.complete({
+          model: cfg.classifier_model,
+          system: factPrompt,
+          messages: [
+            {
+              role: "user",
+              content: `Source bucket: ${bucket}\n\nEvidence JSON:\n\`\`\`json\n${evidenceJson}\n\`\`\``,
+            },
+          ],
+          max_tokens: 600,
+          temperature: 0.1,
+        });
+        totalInput += factResult.input_tokens;
+        totalOutput += factResult.output_tokens;
+
+        let parsed: { facts: Array<{ member_name: string; fact_type: string; summary: string; evidence_ids: string[] }> } | null = null;
+        try {
+          parsed = JSON.parse(factResult.text.trim());
+        } catch {
+          const match = factResult.text.match(/\{[\s\S]*"facts"[\s\S]*\}/);
+          if (match) {
+            try { parsed = JSON.parse(match[0]); } catch { /* skip */ }
+          }
+        }
+
+        if (parsed?.facts?.length) {
+          const resolvedFacts: Array<{ member_id: number; fact_type: string; summary: string; evidence_ids: number[] }> = [];
+          for (const fact of parsed.facts) {
+            const nameLow = (fact.member_name || "").toLowerCase();
+            const member = members.find(
+              (m) =>
+                m.display_name.toLowerCase() === nameLow ||
+                (m.github_handle || "").toLowerCase() === nameLow ||
+                (m.slack_user_id || "").toLowerCase() === nameLow
+            );
+            if (!member) continue;
+            const evidenceIds = (fact.evidence_ids || [])
+              .map((e) => parseInt(String(e).replace(/^ev_/, ""), 10))
+              .filter((n) => !isNaN(n));
+            resolvedFacts.push({
+              member_id: member.id,
+              fact_type: fact.fact_type,
+              summary: fact.summary,
+              evidence_ids: evidenceIds,
+            });
+          }
+          if (resolvedFacts.length > 0) {
+            await insertPersonFacts(sessionId, resolvedFacts);
+          }
+        }
+      } catch (err) {
+        console.warn("[keepr] demo fact extraction failed for bucket", bucket, err);
       }
     }
 

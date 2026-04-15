@@ -4,8 +4,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
-import type { EvidenceItem, SessionRow } from "../lib/types";
+import type { EvidenceItem, SessionRow, TeamMember } from "../lib/types";
 import { renderMarkdown } from "../lib/markdown";
 
 const WORKFLOW_LABELS: Record<string, string> = {
@@ -16,14 +17,41 @@ const WORKFLOW_LABELS: Record<string, string> = {
   promo_readiness: "Promo readiness",
 };
 
+/**
+ * Per-member workflows get the target member's name appended to the title
+ * ("Perf evaluation — Alice Smith"). Team-wide workflows (team pulse,
+ * weekly update) render bare. Matches the format used in the command
+ * palette actions.
+ */
+function buildTitle(session: SessionRow, target: TeamMember | null): string {
+  const label = WORKFLOW_LABELS[session.workflow_type] || session.workflow_type;
+  return target ? `${label} — ${target.display_name}` : label;
+}
+
 interface Props {
   session: SessionRow;
   markdown: string;
   evidence: EvidenceItem[];
-  memberName?: string | null;
+  members: TeamMember[];
+  onRetry?: (session: SessionRow) => void;
+  onDelete?: (id: number) => void;
 }
 
-export function SessionReader({ session, markdown, evidence, memberName }: Props) {
+export function SessionReader({
+  session,
+  markdown,
+  evidence,
+  members,
+  onRetry,
+  onDelete,
+}: Props) {
+  const targetMember = useMemo(
+    () =>
+      session.target_member_id != null
+        ? members.find((m) => m.id === session.target_member_id) || null
+        : null,
+    [session.target_member_id, members]
+  );
   const [activeCite, setActiveCite] = useState<string | null>(null);
   const [evidenceOpen, setEvidenceOpen] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -135,7 +163,7 @@ export function SessionReader({ session, markdown, evidence, memberName }: Props
       const dir = await appDataDir();
       const htmlPath = `${dir}/keepr-print.html`;
       const title =
-        (WORKFLOW_LABELS[session.workflow_type] || session.workflow_type) +
+        buildTitle(session, targetMember) +
         " — " +
         fmtRange(session.time_range_start, session.time_range_end);
       const html = `<!DOCTYPE html>
@@ -172,6 +200,22 @@ ${rendered}
     }
   };
 
+  // Failed-session branch — render a composed error card in place of the
+  // reading view. Lifts the vocabulary from BootErrorScreen in App.tsx
+  // (same two-action composition: primary = recovery, secondary = exit).
+  // Plain `return` instead of early-return-inside-render so all the hooks
+  // above run on every render (React rules of hooks).
+  if (session.status === "failed") {
+    return (
+      <SessionErrorCard
+        session={session}
+        targetMember={targetMember}
+        onRetry={onRetry}
+        onDelete={onDelete}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto px-12 pt-14 pb-10">
@@ -181,8 +225,7 @@ ${rendered}
           <div className="no-print mb-10">
             {/* Notion-style page title: bold type + friendly date below */}
             <h1 className="text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] text-ink">
-              {WORKFLOW_LABELS[session.workflow_type] || session.workflow_type}
-              {memberName ? ` — ${memberName}` : ""}
+              {buildTitle(session, targetMember)}
             </h1>
             <div className="mt-2 flex items-center gap-3 text-[14px] text-ink-muted">
               <span>{fmtFriendly(session.time_range_start, session.time_range_end)}</span>
@@ -298,23 +341,27 @@ ${rendered}
                         })}
                       </span>
                       <span className="text-ink-ghost">·</span>
-                      <a
-                        href={ev.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openExternal(ev.source_url);
+                        }}
                         className="text-ink-muted transition-colors duration-180 hover:text-ink"
                       >
                         open ↗
-                      </a>
+                      </button>
                     </div>
                   </div>
                 </button>
               );
             })}
             {evidence.length === 0 && (
-              <div className="px-2 py-4 text-xs italic text-ink-ghost">
-                No evidence attached.
+              <div className="px-2 py-4 text-xs text-ink-faint">
+                <span className="block font-medium text-ink-muted">No evidence items for this session.</span>
+                <span className="mt-1 block">
+                  This usually means the selected channels and repos had no team activity in this time range.
+                  Try widening the window or checking your connected sources in Settings.
+                </span>
               </div>
             )}
           </div>
@@ -451,5 +498,61 @@ function ActionButton({
     >
       {label}
     </button>
+  );
+}
+
+// Rendered in place of the reading view when a session has
+// status='failed'. Same visual vocabulary as BootErrorScreen in App.tsx:
+// serif display title, subdued body, two clear actions. "Try again"
+// re-dispatches the same workflow via App.tsx; "Delete" removes the
+// failed row (and its cascaded evidence) so the sidebar stays clean.
+function SessionErrorCard({
+  session,
+  targetMember,
+  onRetry,
+  onDelete,
+}: {
+  session: SessionRow;
+  targetMember: TeamMember | null;
+  onRetry?: (session: SessionRow) => void;
+  onDelete?: (id: number) => void;
+}) {
+  const title = buildTitle(session, targetMember);
+
+  return (
+    <div className="flex h-full items-center justify-center bg-canvas px-6">
+      <div className="max-w-[520px]">
+        <div className="text-[10px] uppercase tracking-[0.14em] text-ink-faint">
+          {title} · failed
+        </div>
+        <h1 className="display-serif-lg mt-3 text-ink">
+          This run didn't finish.
+        </h1>
+        <div className="mt-3 text-[13px] text-ink-faint">
+          {fmtRange(session.time_range_start, session.time_range_end)}
+        </div>
+        <p className="mt-5 text-sm leading-relaxed text-ink-muted">
+          {session.error_message || "No error message was recorded."}
+        </p>
+        <div className="mt-8 flex items-center gap-3">
+          {onRetry && (
+            <button
+              onClick={() => onRetry(session)}
+              className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas transition-all duration-180 ease-calm hover:bg-ink-soft"
+            >
+              Try again
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={() => onDelete(session.id)}
+              className="rounded-md border border-hairline bg-canvas px-4 py-2 text-sm text-ink-soft transition-all duration-180 ease-calm hover:border-ink/20 hover:text-ink"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

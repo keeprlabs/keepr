@@ -250,7 +250,7 @@ export async function writeMemory(args: {
       const manualSection = await extractManualSection(statusPath);
       const newStatus = [
         `# Status`,
-        `_Last updated: ${new Date().toISOString()}_`,
+        `*Last updated: ${new Date().toISOString()}*`,
         ``,
         `## Generated`,
         ``,
@@ -260,7 +260,7 @@ export async function writeMemory(args: {
         ``,
         `## Manual notes`,
         ``,
-        manualSection || "_(your notes here — Keepr will not overwrite this section)_",
+        manualSection || "*(your notes here — Keepr will not overwrite this section)*",
         ``,
       ].join("\n");
       await conflictSafeWrite(statusPath, newStatus);

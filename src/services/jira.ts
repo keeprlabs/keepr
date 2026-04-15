@@ -26,10 +26,10 @@ async function jiraBaseUrl(): Promise<string> {
   return cfg.jira_cloud_url.replace(/\/+$/, "");
 }
 
-async function jira<T>(path: string): Promise<T> {
+async function jira<T>(path: string, signal?: AbortSignal): Promise<T> {
   const base = await jiraBaseUrl();
   const headers = await jiraHeaders();
-  const res = await fetch(`${base}${path}`, { headers });
+  const res = await fetch(`${base}${path}`, { headers, signal });
   if (!res.ok) {
     throw new Error(`Jira ${path}: ${res.status} ${res.statusText}`);
   }
@@ -56,6 +56,31 @@ export async function listProjects(): Promise<JiraProjectRemote[]> {
     "/rest/api/3/project/search?maxResults=50&orderBy=name"
   );
   return data.values || [];
+}
+
+// ---- Users (for team member picker) ----------------------------------------
+
+export interface JiraUser {
+  accountId: string;
+  displayName: string;
+  emailAddress?: string;
+}
+
+export async function listProjectMembers(projectKey: string): Promise<JiraUser[]> {
+  // Jira Cloud: get users assignable to a project — this gives us the
+  // people who are actually part of the project, not the entire org.
+  try {
+    const data = await jira<JiraUser[]>(
+      `/rest/api/3/user/assignable/search?project=${encodeURIComponent(projectKey)}&maxResults=100`
+    );
+    return (data || []).filter((u) => u.displayName);
+  } catch {
+    // Fallback: search for all users (some Jira instances restrict assignable/search)
+    const data = await jira<JiraUser[]>(
+      `/rest/api/3/users/search?maxResults=100`
+    );
+    return (data || []).filter((u) => u.displayName);
+  }
 }
 
 // ---- Fetch for pipeline ---------------------------------------------------
@@ -85,7 +110,7 @@ export interface FetchedJiraComment {
 export async function fetchProjectActivity(
   projectKey: string,
   sinceIso: string,
-  opts: { forceRefresh?: boolean } = {}
+  opts: { forceRefresh?: boolean; signal?: AbortSignal } = {}
 ): Promise<FetchedJiraIssue[]> {
   const email = await getSecret(SECRET_KEYS.jiraEmail);
   const token = await getSecret(SECRET_KEYS.jiraToken);
@@ -122,7 +147,10 @@ export async function fetchProjectActivity(
         }> };
       };
     }>;
-  }>(`/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,description,status,assignee,reporter,created,updated,comment`);
+  }>(
+    `/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,description,status,assignee,reporter,created,updated,comment`,
+    opts.signal
+  );
 
   const base = await jiraBaseUrl();
   const out: FetchedJiraIssue[] = [];

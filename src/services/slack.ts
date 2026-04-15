@@ -4,10 +4,12 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { SECRET_KEYS, getSecret } from "./secrets";
 import { getFetchCursor, setFetchCursor } from "./db";
+import { throwIfAborted, isAbortError } from "../lib/abort";
 
 async function slack<T = any>(
   method: string,
-  params: Record<string, string | number | undefined> = {}
+  params: Record<string, string | number | undefined> = {},
+  signal?: AbortSignal
 ): Promise<T> {
   const token = await getSecret(SECRET_KEYS.slackBot);
   if (!token) throw new Error("No Slack bot token");
@@ -21,6 +23,7 @@ async function slack<T = any>(
       Authorization: `Bearer ${token}`,
       Accept: "application/json",
     },
+    signal,
   });
   if (!res.ok) throw new Error(`Slack ${method}: HTTP ${res.status}`);
   const data = (await res.json()) as any;
@@ -93,7 +96,7 @@ export async function fetchChannelHistory(
   channel: { id: string; name: string },
   sinceIso: string,
   teamDomain: string,
-  opts: { forceRefresh?: boolean } = {}
+  opts: { forceRefresh?: boolean; signal?: AbortSignal } = {}
 ): Promise<FetchedMessage[]> {
   const cacheKey = `channel:${channel.id}`;
   const cursor = opts.forceRefresh ? null : await getFetchCursor("slack", cacheKey);
@@ -104,12 +107,19 @@ export async function fetchChannelHistory(
   let slackCursor: string | undefined;
 
   for (let page = 0; page < 10; page++) {
-    const data: any = await slack("conversations.history", {
-      channel: channel.id,
-      oldest,
-      limit: 200,
-      cursor: slackCursor,
-    });
+    // Cancel check between pagination pages.
+    throwIfAborted(opts.signal);
+
+    const data: any = await slack(
+      "conversations.history",
+      {
+        channel: channel.id,
+        oldest,
+        limit: 200,
+        cursor: slackCursor,
+      },
+      opts.signal
+    );
     for (const m of data.messages || []) {
       if (m.subtype === "bot_message" || m.bot_id) continue;
       if (out.length >= 500) break; // hard cap
@@ -129,11 +139,15 @@ export async function fetchChannelHistory(
       // Pull thread replies when this message started a thread.
       if (m.thread_ts && m.reply_count && m.thread_ts === m.ts) {
         try {
-          const rdata: any = await slack("conversations.replies", {
-            channel: channel.id,
-            ts: m.ts,
-            limit: 50,
-          });
+          const rdata: any = await slack(
+            "conversations.replies",
+            {
+              channel: channel.id,
+              ts: m.ts,
+              limit: 50,
+            },
+            opts.signal
+          );
           msg.replies = (rdata.messages || [])
             .slice(1)
             .filter((r: any) => !r.bot_id)
@@ -147,8 +161,11 @@ export async function fetchChannelHistory(
               channel_id: channel.id,
               channel_name: channel.name,
             }));
-        } catch {
-          // swallow — partial thread is fine
+        } catch (err) {
+          // Re-throw cancellation; swallow anything else (partial thread
+          // is acceptable, a real replies API error for one message
+          // shouldn't fail the whole channel fetch).
+          if (isAbortError(err)) throw err;
         }
       }
 

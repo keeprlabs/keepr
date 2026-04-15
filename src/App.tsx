@@ -8,6 +8,7 @@ import { Titlebar } from "./components/Titlebar";
 import { Sidebar, type ViewKey } from "./components/Sidebar";
 import { CommandPalette, type CommandAction } from "./components/CommandPalette";
 import { SessionReader } from "./components/SessionReader";
+import { PersonDetail } from "./components/PersonDetail";
 import { RunOverlay, type RunState } from "./components/RunOverlay";
 import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
@@ -17,6 +18,7 @@ import { FirstRun } from "./components/onboarding/FirstRun";
 import {
   archiveSession,
   countArchivedSessions,
+  deleteSession,
   getConfig,
   getSession,
   listEvidence,
@@ -32,12 +34,14 @@ import {
   isDemoMode,
   runDemoWorkflow,
 } from "./services/demo";
+import { isAbortError } from "./lib/abort";
 import { join } from "@tauri-apps/api/path";
 import type {
   EvidenceItem,
   Integration,
   SessionRow,
   TeamMember,
+  WorkflowType,
 } from "./lib/types";
 
 export default function App() {
@@ -53,6 +57,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [runState, setRunState] = useState<RunState | null>(null);
+  const runControllerRef = useRef<AbortController | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const showArchivedRef = useRef(showArchived);
   showArchivedRef.current = showArchived;
@@ -166,14 +171,31 @@ export default function App() {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const runTeamPulse = useCallback(
-    async (daysBack = 7) => {
-      setRunState({ stage: "fetch", detail: "Starting…" });
+  // One helper that owns the AbortController lifecycle, error handling,
+  // and navigate-on-complete behavior for every workflow dispatch. The
+  // 5 run* wrappers below are just thin calls into this. Extracted during
+  // the plan-eng-review pass when AbortSignal threading made the prior
+  // copy-pasted callbacks even more duplicative.
+  const runWithOverlay = useCallback(
+    async (args: {
+      workflow: WorkflowType;
+      targetMember?: TeamMember;
+      daysBack: number;
+      startDetail: string;
+    }) => {
+      // Abort any previous in-flight run before starting a new one.
+      runControllerRef.current?.abort();
+      const controller = new AbortController();
+      runControllerRef.current = controller;
+
+      setRunState({ stage: "fetch", detail: args.startDetail });
       try {
         const runner = demoMode ? runDemoWorkflow : runWorkflow;
         const r = await runner({
-          workflow: "team_pulse",
-          daysBack,
+          workflow: args.workflow,
+          targetMemberId: args.targetMember?.id,
+          daysBack: args.daysBack,
+          signal: controller.signal,
           onProgress: (stage, detail) =>
             setRunState({ stage: stage as RunState["stage"], detail }),
         });
@@ -184,109 +206,123 @@ export default function App() {
           setView({ kind: "session", id: r.sessionId });
         }, 500);
       } catch (err: any) {
+        if (isAbortError(err)) {
+          // User cancelled. Pipeline already deleted the session row
+          // (or never created evidence). Clear state silently — no toast.
+          setRunState(null);
+          await refresh();
+          return;
+        }
         setRunState({ stage: "error", error: err?.message || String(err) });
+      } finally {
+        if (runControllerRef.current === controller)
+          runControllerRef.current = null;
       }
     },
     [refresh, demoMode]
+  );
+
+  const cancelRun = useCallback(() => {
+    runControllerRef.current?.abort();
+  }, []);
+
+  const runTeamPulse = useCallback(
+    (daysBack = 7) =>
+      runWithOverlay({
+        workflow: "team_pulse",
+        daysBack,
+        startDetail: "Starting…",
+      }),
+    [runWithOverlay]
   );
 
   const runOneOnOne = useCallback(
-    async (member: TeamMember, daysBack = 7) => {
-      setRunState({ stage: "fetch", detail: `Gathering ${member.display_name}'s week` });
-      try {
-        const runner = demoMode ? runDemoWorkflow : runWorkflow;
-        const r = await runner({
-          workflow: "one_on_one_prep",
-          targetMemberId: member.id,
-          daysBack,
-          onProgress: (stage, detail) =>
-            setRunState({ stage: stage as RunState["stage"], detail }),
-        });
-        await refresh();
-        setRunState({ stage: "done" });
-        setTimeout(() => {
-          setRunState(null);
-          setView({ kind: "session", id: r.sessionId });
-        }, 500);
-      } catch (err: any) {
-        setRunState({ stage: "error", error: err?.message || String(err) });
-      }
-    },
-    [refresh, demoMode]
+    (member: TeamMember, daysBack = 7) =>
+      runWithOverlay({
+        workflow: "one_on_one_prep",
+        targetMember: member,
+        daysBack,
+        startDetail: `Gathering ${member.display_name}'s week`,
+      }),
+    [runWithOverlay]
   );
 
   const runWeeklyUpdate = useCallback(
-    async (daysBack = 7) => {
-      setRunState({ stage: "fetch", detail: "Starting weekly update..." });
-      try {
-        const runner = demoMode ? runDemoWorkflow : runWorkflow;
-        const r = await runner({
-          workflow: "weekly_update",
-          daysBack,
-          onProgress: (stage, detail) =>
-            setRunState({ stage: stage as RunState["stage"], detail }),
-        });
-        await refresh();
-        setRunState({ stage: "done" });
-        setTimeout(() => {
-          setRunState(null);
-          setView({ kind: "session", id: r.sessionId });
-        }, 500);
-      } catch (err: any) {
-        setRunState({ stage: "error", error: err?.message || String(err) });
-      }
-    },
-    [refresh, demoMode]
+    (daysBack = 7) =>
+      runWithOverlay({
+        workflow: "weekly_update",
+        daysBack,
+        startDetail: "Starting weekly update…",
+      }),
+    [runWithOverlay]
   );
 
   const runPerfEval = useCallback(
-    async (member: TeamMember, daysBack = 180) => {
-      setRunState({ stage: "fetch", detail: `Gathering ${member.display_name}'s performance data` });
-      try {
-        const runner = demoMode ? runDemoWorkflow : runWorkflow;
-        const r = await runner({
-          workflow: "perf_evaluation",
-          targetMemberId: member.id,
-          daysBack,
-          onProgress: (stage, detail) =>
-            setRunState({ stage: stage as RunState["stage"], detail }),
-        });
-        await refresh();
-        setRunState({ stage: "done" });
-        setTimeout(() => {
-          setRunState(null);
-          setView({ kind: "session", id: r.sessionId });
-        }, 500);
-      } catch (err: any) {
-        setRunState({ stage: "error", error: err?.message || String(err) });
-      }
-    },
-    [refresh, demoMode]
+    (member: TeamMember, daysBack = 180) =>
+      runWithOverlay({
+        workflow: "perf_evaluation",
+        targetMember: member,
+        daysBack,
+        startDetail: `Gathering ${member.display_name}'s performance data`,
+      }),
+    [runWithOverlay]
   );
 
   const runPromoReadiness = useCallback(
-    async (member: TeamMember, daysBack = 180) => {
-      setRunState({ stage: "fetch", detail: `Assessing ${member.display_name}'s promo readiness` });
-      try {
-        const runner = demoMode ? runDemoWorkflow : runWorkflow;
-        const r = await runner({
-          workflow: "promo_readiness",
-          targetMemberId: member.id,
-          daysBack,
-          onProgress: (stage, detail) =>
-            setRunState({ stage: stage as RunState["stage"], detail }),
-        });
-        await refresh();
-        setRunState({ stage: "done" });
-        setTimeout(() => {
-          setRunState(null);
-          setView({ kind: "session", id: r.sessionId });
-        }, 500);
-      } catch (err: any) {
-        setRunState({ stage: "error", error: err?.message || String(err) });
+    (member: TeamMember, daysBack = 180) =>
+      runWithOverlay({
+        workflow: "promo_readiness",
+        targetMember: member,
+        daysBack,
+        startDetail: `Assessing ${member.display_name}'s promo readiness`,
+      }),
+    [runWithOverlay]
+  );
+
+  // Retry a failed session with the same workflow type, target member,
+  // and a window size matching the original (rounded to whole days). The
+  // new run uses "now" as the end, so the content is current — users who
+  // click Try again want "fetch what happened recently", not a historical
+  // replay. The old failed row is left in place until the new session
+  // completes and becomes the visible one in the sidebar; users can
+  // explicitly Delete it if they don't want the audit trail.
+  const rerunSession = useCallback(
+    (session: SessionRow) => {
+      const ms =
+        new Date(session.time_range_end).getTime() -
+        new Date(session.time_range_start).getTime();
+      const daysBack = Math.max(1, Math.round(ms / 86_400_000));
+      const target =
+        session.target_member_id != null
+          ? members.find((m) => m.id === session.target_member_id)
+          : undefined;
+      switch (session.workflow_type) {
+        case "team_pulse":
+          return runTeamPulse(daysBack);
+        case "weekly_update":
+          return runWeeklyUpdate(daysBack);
+        case "one_on_one_prep":
+          if (target) return runOneOnOne(target, daysBack);
+          break;
+        case "perf_evaluation":
+          if (target) return runPerfEval(target, daysBack);
+          break;
+        case "promo_readiness":
+          if (target) return runPromoReadiness(target, daysBack);
+          break;
       }
+      return undefined;
     },
-    [refresh, demoMode]
+    [members, runTeamPulse, runOneOnOne, runWeeklyUpdate, runPerfEval, runPromoReadiness]
+  );
+
+  const deleteSessionAndRefresh = useCallback(
+    async (id: number) => {
+      await deleteSession(id);
+      await refresh();
+      setView({ kind: "home" });
+    },
+    [refresh]
   );
 
   // Command palette actions.
@@ -299,12 +335,28 @@ export default function App() {
         hint: "⌘⏎",
         run: () => runTeamPulse(7),
       },
-      {
-        id: "__runOneOnOne",
-        label: "Run 1:1 prep (pick from sidebar or type name)",
-        keywords: "one on one 1:1 prep",
-        run: () => {},
-      },
+      ...(members.length === 0
+        ? [
+            {
+              id: "__setup_team",
+              label: "1:1 prep — add team members first",
+              keywords: "one on one 1:1 prep team members setup",
+              run: () => setView({ kind: "settings" }),
+            },
+            {
+              id: "__setup_team_perf",
+              label: "Perf evaluation — add team members first",
+              keywords: "perf evaluation review team members setup",
+              run: () => setView({ kind: "settings" }),
+            },
+            {
+              id: "__setup_team_promo",
+              label: "Promo readiness — add team members first",
+              keywords: "promo readiness promotion team members setup",
+              run: () => setView({ kind: "settings" }),
+            },
+          ]
+        : []),
       {
         id: "weekly_update",
         label: "Run weekly engineering update",
@@ -478,12 +530,9 @@ export default function App() {
               session={currentSession}
               markdown={currentMarkdown}
               evidence={currentEvidence}
-              memberName={
-                currentSession.target_member_id
-                  ? members.find((m) => m.id === currentSession.target_member_id)
-                      ?.display_name ?? null
-                  : null
-              }
+              members={members}
+              onRetry={rerunSession}
+              onDelete={deleteSessionAndRefresh}
             />
           )}
           {view.kind === "memory" && (
@@ -492,16 +541,16 @@ export default function App() {
               title={view.file === "status" ? "status.md" : "memory.md"}
             />
           )}
-          {view.kind === "person" && (
-            <MemoryView
-              relPath={`people/${
-                members.find((m) => m.id === view.memberId)?.slug || ""
-              }.md`}
-              title={
-                members.find((m) => m.id === view.memberId)?.display_name || ""
-              }
-            />
-          )}
+          {view.kind === "person" &&
+            (() => {
+              const m = members.find((m) => m.id === view.memberId);
+              return m ? (
+                <PersonDetail
+                  member={m}
+                  onBack={() => setView({ kind: "home" })}
+                />
+              ) : null;
+            })()}
           {view.kind === "topic" && (
             <MemoryView
               relPath={`topics/${view.slug}.md`}
@@ -520,7 +569,11 @@ export default function App() {
         onNavigateSession={(id) => setView({ kind: "session", id })}
         onNavigateMemory={(file) => setView({ kind: "memory", file })}
       />
-      <RunOverlay state={runState} onDismiss={() => setRunState(null)} />
+      <RunOverlay
+        state={runState}
+        onDismiss={() => setRunState(null)}
+        onCancel={cancelRun}
+      />
       {demoMode && <DemoPill onExit={handleExitDemo} />}
     </div>
   );
@@ -570,14 +623,30 @@ function DemoPill({ onExit }: { onExit: () => void }) {
 // etc). Composed rather than alarmist. Offers the two things a user can
 // actually do about it: retry, or copy details for the bug report.
 function BootErrorScreen({ message }: { message: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copyLabel, setCopyLabel] = useState("Copy details");
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(message);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      setCopyLabel("Copied");
+      setTimeout(() => setCopyLabel("Copy details"), 1800);
     } catch {
-      // Clipboard may be unavailable; the message is already on screen.
+      // Clipboard may be unavailable in some webview contexts.
+      // Fall back to selecting the text so the user can Cmd+C.
+      try {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        const el = document.querySelector("[data-error-text]");
+        if (sel && el) {
+          range.selectNodeContents(el);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          setCopyLabel("Selected — ⌘C to copy");
+          setTimeout(() => setCopyLabel("Copy details"), 3000);
+          return;
+        }
+      } catch { /* fall through */ }
+      setCopyLabel("Copy failed");
+      setTimeout(() => setCopyLabel("Copy details"), 2000);
     }
   };
   return (
@@ -587,7 +656,7 @@ function BootErrorScreen({ message }: { message: string }) {
           Couldn't start
         </div>
         <h1 className="display-serif-lg mt-3 text-ink">Keepr hit a wall at boot.</h1>
-        <p className="mt-5 text-sm leading-relaxed text-ink-muted">{message}</p>
+        <p className="mt-5 text-sm leading-relaxed text-ink-muted" data-error-text>{message}</p>
         <div className="mt-8 flex items-center gap-3">
           <button
             onClick={() => window.location.reload()}
@@ -599,7 +668,7 @@ function BootErrorScreen({ message }: { message: string }) {
             onClick={copy}
             className="rounded-md border border-hairline bg-canvas px-4 py-2 text-sm text-ink-soft transition-all duration-180 ease-calm hover:border-ink/20 hover:text-ink"
           >
-            {copied ? "Copied" : "Copy details"}
+            {copyLabel}
           </button>
         </div>
       </div>

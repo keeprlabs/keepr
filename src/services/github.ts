@@ -7,6 +7,7 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { SECRET_KEYS, getSecret, setSecret } from "./secrets";
 import { getFetchCursor, setFetchCursor } from "./db";
+import { throwIfAborted, isAbortError } from "../lib/abort";
 
 // TODO(founder): register a real GitHub OAuth app and paste its Client ID here.
 // Until then users can paste a Personal Access Token in Settings as a fallback.
@@ -75,7 +76,7 @@ export async function savePAT(token: string): Promise<void> {
   await setSecret(SECRET_KEYS.github, token);
 }
 
-async function gh<T>(path: string, token: string): Promise<T> {
+async function gh<T>(path: string, token: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`https://api.github.com${path}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -83,6 +84,7 @@ async function gh<T>(path: string, token: string): Promise<T> {
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "Keepr/0.1",
     },
+    signal,
   });
   if (!res.ok) {
     throw new Error(`GitHub ${path}: ${res.status} ${res.statusText}`);
@@ -137,7 +139,7 @@ export async function fetchRepoActivity(
   owner: string,
   repo: string,
   sinceIso: string,
-  opts: { forceRefresh?: boolean } = {}
+  opts: { forceRefresh?: boolean; signal?: AbortSignal } = {}
 ): Promise<FetchedPR[]> {
   const token = await getSecret(SECRET_KEYS.github);
   if (!token) throw new Error("No GitHub token");
@@ -148,7 +150,8 @@ export async function fetchRepoActivity(
 
   const prs = await gh<any[]>(
     `/repos/${owner}/${repo}/pulls?state=all&sort=updated&direction=desc&per_page=100`,
-    token
+    token,
+    opts.signal
   );
 
   const out: FetchedPR[] = [];
@@ -156,10 +159,21 @@ export async function fetchRepoActivity(
     if (pr.updated_at < effectiveSince) break; // sorted desc
     if (out.length >= 200) break; // hard cap from the doc
 
+    // Cancel check between PRs — fetching reviews per PR is the longest
+    // sub-step in github fetching, so this is the right granularity.
+    throwIfAborted(opts.signal);
+
     const reviews = await gh<any[]>(
       `/repos/${owner}/${repo}/pulls/${pr.number}/reviews?per_page=100`,
-      token
-    ).catch(() => []);
+      token,
+      opts.signal
+    ).catch((err) => {
+      // Re-throw cancellation so it bubbles out of the loop; swallow
+      // everything else (reviews are best-effort — if the API errors for
+      // a specific PR, we still want the PR itself in the pulse).
+      if (isAbortError(err)) throw err;
+      return [];
+    });
 
     out.push({
       source_id: `${owner}/${repo}#${pr.number}`,

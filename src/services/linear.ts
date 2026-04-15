@@ -8,7 +8,11 @@ import { getFetchCursor, setFetchCursor } from "./db";
 
 const LINEAR_API = "https://api.linear.app/graphql";
 
-async function linearFetch<T>(query: string, variables: Record<string, any> = {}): Promise<T> {
+async function linearFetch<T>(
+  query: string,
+  variables: Record<string, any> = {},
+  signal?: AbortSignal
+): Promise<T> {
   const key = await getSecret(SECRET_KEYS.linear);
   if (!key) throw new Error("No Linear API key configured");
 
@@ -19,6 +23,7 @@ async function linearFetch<T>(query: string, variables: Record<string, any> = {}
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
+    signal,
   });
 
   if (!res.ok) {
@@ -56,6 +61,24 @@ export async function listTeams(): Promise<LinearTeamRemote[]> {
   return data.teams.nodes;
 }
 
+// ---- Users (for team member picker) ----------------------------------------
+
+export interface LinearUser {
+  id: string;
+  name: string;
+  displayName: string;
+  email?: string;
+}
+
+export async function listOrgMembers(): Promise<LinearUser[]> {
+  const data = await linearFetch<{
+    users: { nodes: LinearUser[] };
+  }>(`
+    query { users(first: 100) { nodes { id name displayName email } } }
+  `);
+  return data.users.nodes.filter((u) => u.displayName || u.name);
+}
+
 // ---- Fetch for pipeline ---------------------------------------------------
 
 export interface FetchedLinearIssue {
@@ -84,7 +107,7 @@ export async function fetchTeamActivity(
   teamId: string,
   teamKey: string,
   sinceIso: string,
-  opts: { forceRefresh?: boolean } = {}
+  opts: { forceRefresh?: boolean; signal?: AbortSignal } = {}
 ): Promise<FetchedLinearIssue[]> {
   const key = await getSecret(SECRET_KEYS.linear);
   if (!key) throw new Error("No Linear API key");
@@ -142,7 +165,8 @@ export async function fetchTeamActivity(
         }
       }
     }`,
-    { teamId, since: effectiveSince }
+    { teamId, since: effectiveSince },
+    opts.signal
   );
 
   const out: FetchedLinearIssue[] = [];

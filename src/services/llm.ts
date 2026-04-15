@@ -24,6 +24,10 @@ export interface LLMCallOptions {
   // roundtrip on the same tick (macOS can return stale on get-after-set
   // in unsigned dev builds).
   keyOverride?: string;
+  // Cancellation from the run overlay. When aborted, the underlying
+  // fetch() call is cancelled and throws a DOMException('AbortError'),
+  // which the pipeline catches and translates into a session delete.
+  signal?: AbortSignal;
 }
 
 export interface LLMCallResult {
@@ -94,6 +98,7 @@ const anthropic: LLMProvider = {
           content: m.content,
         })),
       }),
+      signal: opts.signal,
     });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
@@ -154,6 +159,7 @@ const openai: LLMProvider = {
         max_tokens: opts.max_tokens ?? 4096,
         messages: msgs,
       }),
+      signal: opts.signal,
     });
     if (!res.ok) {
       const t = await res.text().catch(() => "");
@@ -207,6 +213,7 @@ const openrouter: LLMProvider = {
         max_tokens: opts.max_tokens ?? 4096,
         messages: msgs,
       }),
+      signal: opts.signal,
     });
     if (!res.ok) {
       const t = await res.text().catch(() => "");

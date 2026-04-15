@@ -88,6 +88,24 @@ export interface AppConfig {
   engineering_rubric: string | null;
 }
 
+export interface PersonFact {
+  id: number;
+  member_id: number;
+  session_id: number;
+  fact_type: "shipped" | "reviewed" | "discussed" | "blocked" | "collaborated" | "led";
+  summary: string;
+  evidence_ids: number[];
+  extracted_at: string;
+}
+
+export interface QueryHistoryItem {
+  id: number;
+  member_id: number;
+  query: string;
+  answer: string;
+  created_at: string;
+}
+
 export const DEFAULT_CONFIG: AppConfig = {
   memory_dir: "",
   selected_slack_channels: [],
