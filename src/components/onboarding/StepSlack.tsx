@@ -23,7 +23,7 @@ import * as slack from "../../services/slack";
 
 export const MANIFEST_YAML = `display_information:
   name: Keepr (internal)
-  description: Local AI Chief of Staff reading public channels for team pulse
+  description: Local AI memory layer reading public channels for team pulse
   background_color: "#0a0a0a"
 features:
   bot_user:

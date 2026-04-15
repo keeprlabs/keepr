@@ -1,6 +1,6 @@
 # Keepr
 
-On-device AI Chief of Staff for engineering managers. Tauri v2 desktop app (React + Rust).
+On-device AI memory layer for engineering leaders. Tauri v2 desktop app (React + Rust).
 
 ## Skill routing
 
