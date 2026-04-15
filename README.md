@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>AI memory layer for engineering managers. Local-first. No backend. No account.</strong>
+  <strong>AI memory layer for engineering leaders. Local-first. No backend. No account.</strong>
 </p>
 
 <p align="center">
