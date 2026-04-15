@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="public/icon-192x192.png" width="80" alt="Keepr icon" />
+  <img src="public/wordmark.png" width="154" alt="Keepr" />
 </p>
-
-<h1 align="center">Keepr</h1>
 
 <p align="center">
   <strong>AI memory layer for engineering managers. Local-first. No backend. No account.</strong>
