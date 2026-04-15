@@ -14,7 +14,7 @@ macOS only. Two workflows, shared pipeline, held tight on purpose.
 - **Keyboard-first UI.** Command palette, citation scroll, session history.
 - **Unsigned or signed .dmg** on GitHub Releases. Signed + notarized if the Apple Developer cert is ready; unsigned with "right-click → Open" instructions otherwise.
 
-**Definition of done for v1:** founder dogfoods for two consecutive weeks on real team data. Zero false claims per session. Under 30% editing before use. Then invite 5–10 friendly EMs.
+**Definition of done for v1:** maintainer dogfoods for two consecutive weeks on real team data. Zero false claims per session. Under 30% editing before use. Then invite 5–10 friendly EMs.
 
 ## v1.5 — after v1 validates
 
@@ -25,7 +25,7 @@ Unlocked once there are 3+ happy active users on macOS and the prompts have stab
 - **Auto-update** via the Tauri updater, pointed at GitHub Releases.
 - **Homebrew cask.** `brew install --cask keepr`.
 - **Dark mode.** Light-only in v1 was a taste call; dark mode comes back as a toggle.
-- **Pending-conflict banner** for the memory-layer `.pending` files. Today the founder sees a `.pending` sibling in Finder and resolves by hand.
+- **Pending-conflict banner** for the memory-layer `.pending` files. Today the maintainer sees a `.pending` sibling in Finder and resolves by hand.
 - **Opt-in, aggregate-only telemetry.** Workflow name, duration, success or failure. Never content. Off by default.
 - **Google Doc / Notion export** for sessions.
 

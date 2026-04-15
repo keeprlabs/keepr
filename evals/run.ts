@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Minimal, founder-facing prompt eval harness.
+ * Minimal, lightweight prompt eval harness.
  *
  * This script is deliberately NOT a regression test. It has no
  * assertions, no golden files, no CI gate. Its job is:

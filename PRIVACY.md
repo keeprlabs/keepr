@@ -4,7 +4,7 @@ This is the honest version. Read it before you point Keepr at a real work Slack.
 
 ## What Keepr is
 
-Keepr is a desktop application. It runs on your laptop. There is no Keepr backend, no Keepr database, no Keepr account, no Keepr analytics pipeline. The founder cannot see your sessions, cannot count your runs, and cannot recover your data if you delete it.
+Keepr is a desktop application. It runs on your laptop. There is no Keepr backend, no Keepr database, no Keepr account, no Keepr analytics pipeline. Keepr cannot see your sessions, cannot count your runs, and cannot recover your data if you delete it.
 
 ## Where your data actually goes
 
@@ -66,4 +66,4 @@ If your employer has a relationship with one of these providers (e.g. a zero-ret
 
 ## Questions
 
-File an issue tagged `privacy`. If it's sensitive, reach out to the founder directly (contact on the landing page).
+File an issue tagged `privacy`. If it's sensitive, reach out to the maintainers (contact on the landing page).

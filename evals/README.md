@@ -1,7 +1,7 @@
 # Keepr prompt eval harness
 
 A deliberately minimal harness for manually diffing prompt changes.
-No assertions, no automation, no CI gate. The goal is: a founder sits
+No assertions, no automation, no CI gate. The goal is: a maintainer sits
 down, runs a fixture through the real prompt pipeline, reads the output
 by eye, and decides whether the prompts are still honest.
 
@@ -51,7 +51,7 @@ Optional flags:
 
 ## What to look for when reading the output
 
-This is the manual checklist. The bar is "founder edits less than 30%
+This is the manual checklist. The bar is "maintainer edits less than 30%
 and zero false claims."
 
 1. **Zero false claims.** Every blocker, win, incident, and "stretched
@@ -93,7 +93,7 @@ and zero false claims."
 
 - Not a regression test. No golden outputs. LLM outputs are
   non-deterministic and diffing full markdown is noisy.
-- Not a metric. No "accuracy" number. The only metric is the founder's
+- Not a metric. No "accuracy" number. The only metric is the maintainer's
   eyes on the output.
 - Not wired to the Tauri runtime. It imports no Tauri plugins and
   cannot see your real memory files, DB, or secrets. It reads

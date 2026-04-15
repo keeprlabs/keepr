@@ -34,7 +34,7 @@ export function StepGitHub({
   const [device, setDevice] = useState<github.DeviceCodeResponse | null>(null);
 
   // The device-flow path is only "available" when the build has a real
-  // client id. The placeholder ships until the founder registers an OAuth
+  // client id. The placeholder ships until we register an OAuth
   // app — in that case we still show the tab, but as a quiet future state.
   const deviceFlowAvailable =
     !github.GITHUB_CLIENT_ID.startsWith("Iv1.keepr-placeholder");

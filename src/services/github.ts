@@ -9,7 +9,7 @@ import { SECRET_KEYS, getSecret, setSecret } from "./secrets";
 import { getFetchCursor, setFetchCursor } from "./db";
 import { throwIfAborted, isAbortError } from "../lib/abort";
 
-// TODO(founder): register a real GitHub OAuth app and paste its Client ID here.
+// TODO: register a real GitHub OAuth app and paste its Client ID here.
 // Until then users can paste a Personal Access Token in Settings as a fallback.
 export const GITHUB_CLIENT_ID =
   (import.meta as any).env?.VITE_GITHUB_CLIENT_ID || "Iv1.keepr-placeholder";

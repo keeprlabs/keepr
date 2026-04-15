@@ -8,7 +8,7 @@ Keepr is built dogfood-first. That shapes how contributions work.
 
 **Use the app on real data for at least one session before proposing a change.** Not a test workspace. Not a synthetic fixture. Your actual Slack, your actual team, your actual Monday morning. If you haven't done that, we cannot tell whether your idea is right, and you cannot either.
 
-This applies to everyone, including the founder. It is the reason v1 is as narrow as it is.
+This applies to everyone, including the maintainers. It is the reason v1 is as narrow as it is.
 
 ## Development setup
 

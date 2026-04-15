@@ -1,6 +1,6 @@
 # CHANGES — deviations from the design doc
 
-Recorded while building v1 so the founder can audit what I changed and why.
+Recorded while building v1 so maintainers can audit what I changed and why.
 
 ## Phase 2 — v1.5 features (2026-04-09)
 
@@ -79,7 +79,7 @@ Recorded while building v1 so the founder can audit what I changed and why.
 ## UX
 
 - **Inverted the aesthetic entirely.** The design doc calls for a
-  Cursor/Conductor dev-tool dark mode. The founder override moved us to a
+  Cursor/Conductor dev-tool dark mode. A dev override moved us to a
   Granola-inspired minimal monochromatic light theme. Everything else in the
   UI section of the doc (sidebar sections, two-region session view,
   command-palette-first nav, keyboard shortcuts, bidirectional citation
@@ -94,7 +94,7 @@ Recorded while building v1 so the founder can audit what I changed and why.
   flows are not needed for v1.
 - **GitHub device flow requires a registered OAuth app Client ID.** There is
   a placeholder `Iv1.keepr-placeholder` in `src/services/github.ts` and a
-  `VITE_GITHUB_CLIENT_ID` override. Until the founder registers an OAuth
+  `VITE_GITHUB_CLIENT_ID` override. Until we register an OAuth
   app, the PAT path in the onboarding screen is the working default
   (scopes: `repo`, `read:user`). This matches the doc's risk note that
   GitHub may need late-stage setup.
@@ -119,7 +119,7 @@ Recorded while building v1 so the founder can audit what I changed and why.
   modified externally within the last 30 seconds of our write, we drop
   the new contents to `{path}.pending`. This is a simpler heuristic than
   the full mtime+hash protocol in the doc. A banner surface for resolving
-  pending conflicts is deferred to v1.5 — the founder will see a
+  pending conflicts is deferred to v1.5 — the user will see a
   `.pending` sibling in Finder if it happens.
 
 ## Data pipeline
@@ -155,7 +155,7 @@ Recorded while building v1 so the founder can audit what I changed and why.
 - No tests beyond the smoke-test path you can hit manually by running
   both workflows
 - No signing / notarization pipeline (the debug binary launches; the
-  `.dmg` bundling step is the next founder task after registering the
+  `.dmg` bundling step is the next task after registering the
   Apple Developer cert)
 
 ## Prompts & evals
@@ -203,7 +203,7 @@ Recorded while building v1 so the founder can audit what I changed and why.
   seeds the memory files.
 - **Added `evals/` — a deliberately minimal prompt eval harness.**
   - `evals/README.md` describes the philosophy (no assertions, no
-    golden files, no CI gate — just a founder reading the output).
+    golden files, no CI gate — just a maintainer reading the output).
   - `evals/fixtures/baseline.json`, `stretched_thin.json`, and
     `ambiguous.json` are hand-crafted synthetic weeks for a 5-person
     team. Each has stable `ev_N` ids and a description of what the
