@@ -284,7 +284,10 @@ function resolveActor(
     if (m) return m;
   }
   if (item.actor_slack) {
-    const m = members.find((x) => x.slack_user_id === item.actor_slack);
+    const slackId = item.actor_slack.trim().toUpperCase();
+    const m = members.find(
+      (x) => (x.slack_user_id || "").trim().toUpperCase() === slackId
+    );
     if (m) return m;
   }
   if (item.actor_jira) {
@@ -535,9 +538,13 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
       // Log a diagnostic so the user can fix their mappings.
       const seenGh = new Set<string>();
       const seenSlack = new Set<string>();
+      const seenJira = new Set<string>();
+      const seenLinear = new Set<string>();
       for (const it of pruned) {
         if (it.actor_github) seenGh.add(it.actor_github);
         if (it.actor_slack) seenSlack.add(it.actor_slack);
+        if (it.actor_jira) seenJira.add(it.actor_jira);
+        if (it.actor_linear) seenLinear.add(it.actor_linear);
       }
       const configuredGh = members
         .filter((m) => m.github_handle)
@@ -545,16 +552,44 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
       const configuredSlack = members
         .filter((m) => m.slack_user_id)
         .map((m) => m.slack_user_id!);
+      const configuredJira = members
+        .filter((m) => m.jira_username)
+        .map((m) => m.jira_username!);
+      const configuredLinear = members
+        .filter((m) => m.linear_username)
+        .map((m) => m.linear_username!);
+
+      const diagnosticLines: string[] = [];
+      if (seenGh.size || configuredGh.length) {
+        diagnosticLines.push(
+          `GitHub in data: ${[...seenGh].join(", ") || "(none)"} | configured: ${configuredGh.join(", ") || "(none)"}`
+        );
+      }
+      if (seenSlack.size || configuredSlack.length) {
+        diagnosticLines.push(
+          `Slack in data: ${[...seenSlack].join(", ") || "(none)"} | configured: ${configuredSlack.join(", ") || "(none)"}`
+        );
+      }
+      if (seenJira.size || configuredJira.length) {
+        diagnosticLines.push(
+          `Jira in data: ${[...seenJira].join(", ") || "(none)"} | configured: ${configuredJira.join(", ") || "(none)"}`
+        );
+      }
+      if (seenLinear.size || configuredLinear.length) {
+        diagnosticLines.push(
+          `Linear in data: ${[...seenLinear].join(", ") || "(none)"} | configured: ${configuredLinear.join(", ") || "(none)"}`
+        );
+      }
+
+      const diagnosticMsg =
+        "No items matched team members. Using all activity (unattributed).\n" +
+        diagnosticLines.join("\n") +
+        "\nFix: update team member mappings in Settings.";
 
       // eslint-disable-next-line no-console
-      console.warn(
-        "[keepr] No items matched team members. Falling through with all activity.\n" +
-          `  GitHub handles in data: ${[...seenGh].join(", ") || "(none)"}\n` +
-          `  GitHub handles configured: ${configuredGh.join(", ") || "(none)"}\n` +
-          `  Slack IDs in data: ${[...seenSlack].join(", ") || "(none)"}\n` +
-          `  Slack IDs configured: ${configuredSlack.join(", ") || "(none)"}\n` +
-          "  Fix: update team member mappings in Settings → Team members."
-      );
+      console.warn(`[keepr] ${diagnosticMsg}`);
+      // Surface the diagnostic to the UI via the prune stage detail.
+      progress("prune", "No team member matches found. Check Settings.");
       // Keep all pruned items so the pipeline still produces output.
     }
 

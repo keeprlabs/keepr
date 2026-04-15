@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
 import type { EvidenceItem, SessionRow, TeamMember } from "../lib/types";
 import { renderMarkdown } from "../lib/markdown";
@@ -340,15 +341,15 @@ ${rendered}
                         })}
                       </span>
                       <span className="text-ink-ghost">·</span>
-                      <a
-                        href={ev.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openExternal(ev.source_url);
+                        }}
                         className="text-ink-muted transition-colors duration-180 hover:text-ink"
                       >
                         open ↗
-                      </a>
+                      </button>
                     </div>
                   </div>
                 </button>

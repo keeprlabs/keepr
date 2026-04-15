@@ -37,6 +37,12 @@ export function Settings() {
   const [linearKey, setLinearKey] = useState("");
   const [linearTeams, setLinearTeams] = useState<linear.LinearTeamRemote[]>([]);
   const [llmSaveStatus, setLlmSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [slackUsers, setSlackUsers] = useState<slack.SlackUser[]>([]);
+  const [slackUsersLoaded, setSlackUsersLoaded] = useState(false);
+  const [jiraUsers, setJiraUsers] = useState<jira.JiraUser[]>([]);
+  const [jiraUsersLoaded, setJiraUsersLoaded] = useState(false);
+  const [linearUsers, setLinearUsers] = useState<linear.LinearUser[]>([]);
+  const [linearUsersLoaded, setLinearUsersLoaded] = useState(false);
 
   const load = async () => {
     const freshCfg = await getConfig();
@@ -487,23 +493,58 @@ export function Settings() {
                   />
                 </div>
                 <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
-                  <input
-                    className={inputCls}
-                    placeholder="Slack user ID"
+                  <SlackUserPicker
                     value={m.slack_user_id || ""}
-                    onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, slack_user_id: e.target.value } : x))}
+                    slackUsers={slackUsers}
+                    slackUsersLoaded={slackUsersLoaded}
+                    onLoadUsers={async () => {
+                      if (slackUsersLoaded) return;
+                      try {
+                        const users = await slack.listUsers();
+                        setSlackUsers(users);
+                        setSlackUsersLoaded(true);
+                      } catch (e: any) {
+                        alert(`Could not load Slack users: ${e.message}`);
+                      }
+                    }}
+                    onChange={(uid) => setMembers(members.map((x) => x.id === m.id ? { ...x, slack_user_id: uid || null } : x))}
                   />
-                  <input
-                    className={inputCls}
-                    placeholder="Jira display name"
+                  <UserPicker
                     value={m.jira_username || ""}
-                    onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, jira_username: e.target.value } : x))}
+                    placeholder="Select Jira user"
+                    options={jiraUsers.map((u) => ({ value: u.displayName, label: u.displayName, detail: u.emailAddress }))}
+                    loaded={jiraUsersLoaded}
+                    onLoad={async () => {
+                      if (jiraUsersLoaded) return;
+                      try {
+                        const firstProject = cfg.selected_jira_projects?.[0];
+                        const users = firstProject
+                          ? await jira.listProjectMembers(firstProject.key)
+                          : [];
+                        setJiraUsers(users);
+                        setJiraUsersLoaded(true);
+                      } catch (e: any) {
+                        alert(`Could not load Jira users: ${e.message}`);
+                      }
+                    }}
+                    onChange={(v) => setMembers(members.map((x) => x.id === m.id ? { ...x, jira_username: v || null } : x))}
                   />
-                  <input
-                    className={inputCls}
-                    placeholder="Linear display name"
+                  <UserPicker
                     value={m.linear_username || ""}
-                    onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, linear_username: e.target.value } : x))}
+                    placeholder="Select Linear user"
+                    options={linearUsers.map((u) => ({ value: u.displayName || u.name, label: u.displayName || u.name, detail: u.email }))}
+                    loaded={linearUsersLoaded}
+                    onLoad={async () => {
+                      if (linearUsersLoaded) return;
+                      try {
+                        const users = await linear.listOrgMembers();
+                        setLinearUsers(users);
+                        setLinearUsersLoaded(true);
+                      } catch (e: any) {
+                        alert(`Could not load Linear users: ${e.message}`);
+                      }
+                    }}
+                    onChange={(v) => setMembers(members.map((x) => x.id === m.id ? { ...x, linear_username: v || null } : x))}
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -691,6 +732,126 @@ function SaveButton({
         ? "Failed"
         : label}
     </button>
+  );
+}
+
+// Slack user picker — loads workspace users on first focus, shows a select
+// dropdown with human-readable names but stores the actual Slack user ID
+// (e.g. U05RQAXHBL7). This eliminates the #1 matching failure: users
+// entering display names instead of opaque user IDs.
+function SlackUserPicker({
+  value,
+  slackUsers,
+  slackUsersLoaded,
+  onLoadUsers,
+  onChange,
+}: {
+  value: string;
+  slackUsers: slack.SlackUser[];
+  slackUsersLoaded: boolean;
+  onLoadUsers: () => Promise<void>;
+  onChange: (uid: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  const handleFocus = async () => {
+    if (slackUsersLoaded || loading) return;
+    setLoading(true);
+    await onLoadUsers();
+    setLoading(false);
+  };
+
+  // Show the selected user's name next to the dropdown for confirmation
+  const selectedUser = slackUsers.find((u) => u.id === value);
+  const label = selectedUser
+    ? selectedUser.profile?.real_name || selectedUser.real_name || selectedUser.name
+    : null;
+
+  return (
+    <div className="relative">
+      <select
+        className={inputCls + " appearance-none pr-7"}
+        value={value}
+        onFocus={handleFocus}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">
+          {loading ? "Loading users\u2026" : "Select Slack user"}
+        </option>
+        {/* If a value is set but users haven't loaded yet, show a placeholder option */}
+        {value && !selectedUser && (
+          <option value={value}>{value} (not resolved)</option>
+        )}
+        {slackUsers.map((u) => {
+          const display = u.profile?.real_name || u.real_name || u.name;
+          return (
+            <option key={u.id} value={u.id}>
+              {display} ({u.name})
+            </option>
+          );
+        })}
+      </select>
+      {/* Dropdown chevron */}
+      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </div>
+  );
+}
+
+/** Generic user picker dropdown. Lazy-loads options on focus. */
+function UserPicker({
+  value,
+  placeholder,
+  options,
+  loaded,
+  onLoad,
+  onChange,
+}: {
+  value: string;
+  placeholder: string;
+  options: Array<{ value: string; label: string; detail?: string }>;
+  loaded: boolean;
+  onLoad: () => Promise<void>;
+  onChange: (v: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+
+  const handleFocus = async () => {
+    if (loaded || loading) return;
+    setLoading(true);
+    await onLoad();
+    setLoading(false);
+  };
+
+  return (
+    <div className="relative">
+      <select
+        className={inputCls + " appearance-none pr-7"}
+        value={value}
+        onFocus={handleFocus}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">
+          {loading ? "Loading\u2026" : placeholder}
+        </option>
+        {value && !options.find((o) => o.value === value) && (
+          <option value={value}>{value}</option>
+        )}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}{o.detail ? ` (${o.detail})` : ""}
+          </option>
+        ))}
+      </select>
+      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+          <path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </span>
+    </div>
   );
 }
 

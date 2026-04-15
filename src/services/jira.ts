@@ -58,6 +58,31 @@ export async function listProjects(): Promise<JiraProjectRemote[]> {
   return data.values || [];
 }
 
+// ---- Users (for team member picker) ----------------------------------------
+
+export interface JiraUser {
+  accountId: string;
+  displayName: string;
+  emailAddress?: string;
+}
+
+export async function listProjectMembers(projectKey: string): Promise<JiraUser[]> {
+  // Jira Cloud: get users assignable to a project — this gives us the
+  // people who are actually part of the project, not the entire org.
+  try {
+    const data = await jira<JiraUser[]>(
+      `/rest/api/3/user/assignable/search?project=${encodeURIComponent(projectKey)}&maxResults=100`
+    );
+    return (data || []).filter((u) => u.displayName);
+  } catch {
+    // Fallback: search for all users (some Jira instances restrict assignable/search)
+    const data = await jira<JiraUser[]>(
+      `/rest/api/3/users/search?maxResults=100`
+    );
+    return (data || []).filter((u) => u.displayName);
+  }
+}
+
 // ---- Fetch for pipeline ---------------------------------------------------
 
 export interface FetchedJiraIssue {
