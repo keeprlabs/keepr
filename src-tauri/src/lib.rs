@@ -224,6 +224,20 @@ pub fn run() {
                 .add_migrations("sqlite:keepr.db", migrations())
                 .build(),
         )
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: Some("keepr".into()),
+                    }),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                ])
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
+                .max_file_size(10 * 1024 * 1024)
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             secrets::secret_set,
             secrets::secret_get,

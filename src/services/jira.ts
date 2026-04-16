@@ -31,7 +31,30 @@ async function jira<T>(path: string, signal?: AbortSignal): Promise<T> {
   const headers = await jiraHeaders();
   const res = await fetch(`${base}${path}`, { headers, signal });
   if (!res.ok) {
-    throw new Error(`Jira ${path}: ${res.status} ${res.statusText}`);
+    const errText = await res.text().catch(() => "");
+    throw new Error(
+      `Jira ${path}: ${res.status} ${res.statusText}` +
+        (errText ? ` — ${errText.slice(0, 300)}` : "")
+    );
+  }
+  return (await res.json()) as T;
+}
+
+async function jiraPost<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const base = await jiraBaseUrl();
+  const headers = await jiraHeaders();
+  const res = await fetch(`${base}${path}`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(
+      `Jira ${path}: ${res.status} ${res.statusText}` +
+        (errText ? ` — ${errText.slice(0, 300)}` : "")
+    );
   }
   return (await res.json()) as T;
 }
@@ -120,13 +143,16 @@ export async function fetchProjectActivity(
   const cursor = opts.forceRefresh ? null : await getFetchCursor("jira", cacheKey);
   const effectiveSince = cursor && cursor > sinceIso ? cursor : sinceIso;
 
-  // JQL: issues in the project updated since the effective time
+  // Legacy /rest/api/3/search was removed by Atlassian in May 2025 (returns
+  // 410 Gone). We now use the enhanced /rest/api/3/search/jql endpoint: POST
+  // with JSON body, cursor-based pagination via nextPageToken. The enhanced
+  // endpoint does NOT return the `comment` field — comments must be fetched
+  // per issue via /rest/api/3/issue/{key}/comment.
+  // https://developer.atlassian.com/cloud/jira/platform/changelog/
   const sinceDate = effectiveSince.split("T")[0];
-  const jql = encodeURIComponent(
-    `project = "${projectKey}" AND updated >= "${sinceDate}" ORDER BY updated DESC`
-  );
+  const jql = `project = "${projectKey}" AND updated >= "${sinceDate}" ORDER BY updated DESC`;
 
-  const data = await jira<{
+  const data = await jiraPost<{
     issues: Array<{
       id: string;
       key: string;
@@ -139,16 +165,17 @@ export async function fetchProjectActivity(
         reporter: { displayName: string; accountId: string } | null;
         created: string;
         updated: string;
-        comment?: { comments: Array<{
-          id: string;
-          author: { displayName: string; accountId: string };
-          body: any;
-          created: string;
-        }> };
       };
     }>;
+    nextPageToken?: string;
+    isLast?: boolean;
   }>(
-    `/rest/api/3/search?jql=${jql}&maxResults=100&fields=summary,description,status,assignee,reporter,created,updated,comment`,
+    "/rest/api/3/search/jql",
+    {
+      jql,
+      fields: ["summary", "description", "status", "assignee", "reporter", "created", "updated"],
+      maxResults: 100,
+    },
     opts.signal
   );
 
@@ -161,17 +188,32 @@ export async function fetchProjectActivity(
     const descText = extractJiraText(issue.fields.description);
     const issueUrl = `${base}/browse/${issue.key}`;
 
+    // Comments: separate call per issue (new endpoint doesn't inline them).
+    // Best-effort — if it fails, we keep the issue without comments.
     const comments: FetchedJiraComment[] = [];
-    for (const c of issue.fields.comment?.comments || []) {
-      const bodyText = extractJiraText(c.body);
-      if (!bodyText.trim()) continue;
-      comments.push({
-        source_id: `${issue.key}:comment/${c.id}`,
-        url: `${issueUrl}?focusedId=${c.id}`,
-        author: c.author?.displayName ?? null,
-        body: bodyText.slice(0, 800),
-        created: c.created,
-      });
+    try {
+      const commentData = await jira<{
+        comments: Array<{
+          id: string;
+          author: { displayName: string; accountId: string };
+          body: any;
+          created: string;
+        }>;
+      }>(`/rest/api/3/issue/${issue.key}/comment?maxResults=50`, opts.signal);
+
+      for (const c of commentData.comments || []) {
+        const bodyText = extractJiraText(c.body);
+        if (!bodyText.trim()) continue;
+        comments.push({
+          source_id: `${issue.key}:comment/${c.id}`,
+          url: `${issueUrl}?focusedId=${c.id}`,
+          author: c.author?.displayName ?? null,
+          body: bodyText.slice(0, 800),
+          created: c.created,
+        });
+      }
+    } catch {
+      // swallow — comments are auxiliary, shouldn't fail the whole fetch
     }
 
     out.push({

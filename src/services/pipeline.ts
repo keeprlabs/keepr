@@ -40,6 +40,7 @@ import { fetchTeamActivity, type FetchedLinearIssue } from "./linear";
 import { getProvider, setCustomConfig } from "./llm";
 import { writeMemory, readMemoryContext } from "./memory";
 import { throwIfAborted, isAbortError } from "../lib/abort";
+import { info as logInfo, warn as logWarn } from "@tauri-apps/plugin-log";
 
 // ---- Normalization -------------------------------------------------------
 
@@ -361,8 +362,20 @@ export interface RunResult {
   costUsd: number;
 }
 
+// Narrow `unknown` error values to a readable string for logs.
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
 export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
-  const progress = opts.onProgress || (() => {});
+  // Tee progress events into the log file so every fetch / prune / map /
+  // synthesize / write step is visible in the platform log dir — makes
+  // silent fetch failures diagnosable via `tail -f`.
+  const progress = (stage: string, detail?: string) => {
+    logInfo(`${stage}${detail ? ": " + detail : ""}`).catch(() => {});
+    opts.onProgress?.(stage, detail);
+  };
   const cfg = await getConfig();
   const members = await listMembers();
 
@@ -415,10 +428,11 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
           timeRange.start,
           fetchOpts
         );
+        progress("fetch", `GitHub: ${repo.owner}/${repo.repo} → ${prs.length} PRs`);
         allItems.push(...normalizeGithub(prs, `${repo.owner}/${repo.repo}`));
       } catch (err) {
         if (isAbortError(err)) throw err;
-        console.warn("github fetch failed", repo, err);
+        logWarn(`github fetch failed (${repo.owner}/${repo.repo}): ${errMessage(err)}`).catch(() => {});
       }
     }
 
@@ -442,10 +456,11 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
           teamDomain,
           fetchOpts
         );
+        progress("fetch", `Slack: #${ch.name} → ${msgs.length} msgs`);
         allItems.push(...normalizeSlack(msgs));
       } catch (err) {
         if (isAbortError(err)) throw err;
-        console.warn("slack fetch failed", ch, err);
+        logWarn(`slack fetch failed (#${ch.name}): ${errMessage(err)}`).catch(() => {});
       }
     }
 
@@ -459,10 +474,11 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
           timeRange.start,
           fetchOpts
         );
+        progress("fetch", `Jira: ${proj.key} → ${issues.length} issues`);
         allItems.push(...normalizeJira(issues, proj.key));
       } catch (err) {
         if (isAbortError(err)) throw err;
-        console.warn("jira fetch failed", proj, err);
+        logWarn(`jira fetch failed (${proj.key}): ${errMessage(err)}`).catch(() => {});
       }
     }
 
@@ -477,10 +493,11 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
           timeRange.start,
           fetchOpts
         );
+        progress("fetch", `Linear: ${team.key} → ${issues.length} issues`);
         allItems.push(...normalizeLinear(issues, team.key));
       } catch (err) {
         if (isAbortError(err)) throw err;
-        console.warn("linear fetch failed", team, err);
+        logWarn(`linear fetch failed (${team.key}): ${errMessage(err)}`).catch(() => {});
       }
     }
 

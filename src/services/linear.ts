@@ -27,12 +27,19 @@ async function linearFetch<T>(
   });
 
   if (!res.ok) {
-    throw new Error(`Linear API: ${res.status} ${res.statusText}`);
+    // Capture response body — GraphQL validation errors surface here as 400s
+    // and without the body we only see "400 Bad Request" which is useless.
+    const errText = await res.text().catch(() => "");
+    throw new Error(
+      `Linear API: ${res.status} ${res.statusText}` +
+        (errText ? ` — ${errText.slice(0, 400)}` : "")
+    );
   }
 
   const data: any = await res.json();
   if (data.errors?.length) {
-    throw new Error(`Linear API: ${data.errors[0].message}`);
+    const msgs = data.errors.map((e: any) => e.message).join("; ");
+    throw new Error(`Linear API: ${msgs}`);
   }
   return data.data as T;
 }
@@ -141,7 +148,7 @@ export async function fetchTeamActivity(
       }>;
     };
   }>(
-    `query($teamId: String!, $since: DateTime!) {
+    `query($teamId: ID!, $since: DateTimeOrDuration!) {
       issues(
         filter: {
           team: { id: { eq: $teamId } }
