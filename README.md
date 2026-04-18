@@ -31,6 +31,11 @@ Point it at your Slack workspace and a handful of GitHub repos, pick an LLM prov
 - **Weekly engineering update** -- Stakeholder-ready summary: shipped, in progress, blocked, upcoming
 - **Performance evaluation** -- Evidence-organized eval with optional rubric mapping (scaffold, needs real-data tuning)
 - **Promo readiness** -- Gap analysis against target level with cited evidence
+- **Evidence graph** -- Interactive force-directed visualization of how evidence connects across sources. Zoom, pan, drag nodes, click for detail cards
+- **Team heatmap** -- Activity grid by member and day with configurable 7/14/28-day range
+- **Follow-up tracker** -- Kanban board for action items extracted from briefs. Open, carried, resolved columns
+- **Citation sync** -- Click any citation to see the source evidence. Side panel with bidirectional highlighting
+- **Confidence indicators** -- Per-section confidence badges based on evidence depth and source diversity
 - **Local memory** -- Observed facts persisted as plain markdown files you can open in Obsidian, grep, or commit to a private repo
 - **Keyboard-first UI** -- Command palette (Cmd+K), citation scroll, session history
 - **Zero telemetry** -- Nothing phones home. Keepr cannot see your sessions.

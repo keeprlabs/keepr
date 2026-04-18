@@ -4,6 +4,7 @@
 
 import { useState } from "react";
 import type { SessionRow, TeamMember } from "../lib/types";
+import { providerIcon } from "./primitives/SourceBadge";
 
 
 export type ViewKey =
@@ -12,6 +13,9 @@ export type ViewKey =
   | { kind: "memory"; file: "status" | "memory" }
   | { kind: "person"; memberId: number }
   | { kind: "topic"; slug: string }
+  | { kind: "followups" }
+  | { kind: "heatmap" }
+  | { kind: "graph" }
   | { kind: "settings" }
   | { kind: "onboarding" };
 
@@ -55,6 +59,7 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
 
         <Section
           label="Sessions"
+          defaultOpen={false}
           icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><rect x="2" y="3" width="12" height="10" rx="2" stroke="currentColor" strokeWidth="1.3" /><path d="M5 6.5h6M5 9.5h4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>}
           count={sessions.length}
           suffix={
@@ -96,7 +101,7 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
           })}
         </Section>
 
-        <Section label="People" icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><circle cx="8" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.3" /><path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>} count={members.length}>
+        <Section label="People" defaultOpen={true} icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><circle cx="8" cy="5.5" r="2.5" stroke="currentColor" strokeWidth="1.3" /><path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>} count={members.length}>
           {members.length === 0 && (
             <EmptyHint>Add members in Settings</EmptyHint>
           )}
@@ -110,7 +115,7 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
           ))}
         </Section>
 
-        <Section label="Memory" icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><path d="M8 2C5 2 3 3.5 3 5v6c0 1.5 2 3 5 3s5-1.5 5-3V5c0-1.5-2-3-5-3z" stroke="currentColor" strokeWidth="1.3" /><path d="M3 8c0 1.5 2 3 5 3s5-1.5 5-3" stroke="currentColor" strokeWidth="1.3" /></svg>}>
+        <Section label="Memory" defaultOpen={false} icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><path d="M8 2C5 2 3 3.5 3 5v6c0 1.5 2 3 5 3s5-1.5 5-3V5c0-1.5-2-3-5-3z" stroke="currentColor" strokeWidth="1.3" /><path d="M3 8c0 1.5 2 3 5 3s5-1.5 5-3" stroke="currentColor" strokeWidth="1.3" /></svg>}>
           <Item
             active={view.kind === "memory" && view.file === "status"}
             onClick={() => onSelect({ kind: "memory", file: "status" })}
@@ -124,7 +129,7 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
         </Section>
 
         {topics.length > 0 && (
-          <Section label="Topics" count={topics.length}>
+          <Section label="Topics" defaultOpen={false} count={topics.length}>
             {topics.map((t) => (
               <Item
                 key={t}
@@ -135,6 +140,28 @@ export function Sidebar({ sessions, members, topics, view, onSelect, integration
             ))}
           </Section>
         )}
+
+        <Section
+          label="Tools"
+          defaultOpen={false}
+          icon={<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden><path d="M6 2h4M7 2v4l-3.5 6a1 1 0 0 0 .87 1.5h7.26a1 1 0 0 0 .87-1.5L9 6V2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M5 10h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>}
+        >
+          <Item
+            active={view.kind === "followups"}
+            onClick={() => onSelect({ kind: "followups" })}
+            label="Follow-ups"
+          />
+          <Item
+            active={view.kind === "heatmap"}
+            onClick={() => onSelect({ kind: "heatmap" })}
+            label="Team heatmap"
+          />
+          <Item
+            active={view.kind === "graph"}
+            onClick={() => onSelect({ kind: "graph" })}
+            label="Evidence graph"
+          />
+        </Section>
       </div>
 
       <div className="hair-t px-5 py-4">
@@ -166,21 +193,37 @@ function Section({
   icon,
   count,
   suffix,
+  defaultOpen = true,
   children,
 }: {
   label: string;
   icon?: React.ReactNode;
   count?: number;
   suffix?: React.ReactNode;
+  defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="mb-6">
       <div className="mb-2 flex items-center justify-between px-2">
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted"
+        >
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden
+            className={`shrink-0 transition-transform duration-180 ${open ? "" : "-rotate-90"}`}
+          >
+            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
           {icon}
           {label}
-        </span>
+        </button>
         <span className="flex items-center gap-2">
           {suffix}
           {typeof count === "number" && count > 0 && (
@@ -190,7 +233,7 @@ function Section({
           )}
         </span>
       </div>
-      <div className="flex flex-col gap-[1px] pl-3">{children}</div>
+      {open && <div className="flex flex-col gap-[1px] pl-3">{children}</div>}
     </div>
   );
 }
@@ -294,12 +337,16 @@ function ConnectedSection({ integrations }: { integrations: Array<{ provider: st
           {["anthropic", "github", "slack", "jira", "linear"].map((p) => {
             const integ = integrations.find((i) => i.provider === p);
             const state = integ?.status === "active" ? "ok" : integ ? "warn" : "off";
+            const icon = providerIcon(p, 14);
             return (
               <div
                 key={p}
                 className="flex items-center justify-between text-xs text-ink-muted"
               >
-                <span className="capitalize">{p}</span>
+                <span className="flex items-center gap-2 capitalize">
+                  {icon}
+                  {p}
+                </span>
                 <StatusDot state={state} />
               </div>
             );

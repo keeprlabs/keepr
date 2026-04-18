@@ -115,6 +115,14 @@ BAD (do not write these):
 - `- Sarah shipped the refactor.` (missing person_id prefix — parser will drop it)
 - `- {person_id: tm_3} Shipped the refactor.` (missing citation)
 
+## Confidence signals (machine-parsed)
+
+After each `## Section` heading, on the very next line, emit a confidence signal as an HTML comment:
+`<!-- confidence: high|medium|low -->`
+- high = 3+ citations from 2+ source types, evidence is recent
+- medium = 2+ citations or 2+ source types
+- low = 0-1 citations from single source type
+
 ## Topics contract (machine-parsed — rigid schema)
 
 After the `## Memory deltas` section, emit a `## Topics` section that

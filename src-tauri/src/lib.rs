@@ -207,6 +207,25 @@ CREATE TABLE query_history (
 CREATE INDEX idx_query_history_member ON query_history(member_id);
 "#,
         },
+        Migration {
+            version: 7,
+            description: "followups_table",
+            kind: MigrationKind::Up,
+            sql: r#"
+CREATE TABLE IF NOT EXISTS followups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_path TEXT NOT NULL UNIQUE,
+  subject TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open','carried','resolved')),
+  origin_session INTEGER,
+  origin_member_id INTEGER,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  resolved_at DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_followups_state ON followups(state);
+CREATE INDEX IF NOT EXISTS idx_followups_member ON followups(origin_member_id);
+"#,
+        },
     ]
 }
 

@@ -111,7 +111,7 @@ function inline(s: string, evById: Map<string, EvidenceItem>): string {
     if (!ev) return `<sup class="cite dangling">${n}</sup>`;
     const preview = ev.content.slice(0, 160);
     const ellipsis = ev.content.length > 160 ? "\u2026" : "";
-    return `<sup class="cite" data-ev="${id}" title="${esc(
+    return `<sup class="cite" data-ev="${id}" tabindex="0" title="${esc(
       preview + ellipsis
     )}">${n}</sup>`;
   });
@@ -150,6 +150,8 @@ export function renderMarkdown(
       flushList();
       continue;
     }
+    // Strip HTML comments (e.g. <!-- confidence: medium -->)
+    if (/^\s*<!--.*-->\s*$/.test(line)) continue;
     if (line.startsWith("# ")) {
       flushPara();
       flushList();

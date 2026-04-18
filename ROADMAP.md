@@ -41,6 +41,18 @@ v2 is the long-term product target: the defensibility story. It only ships if v1
 - **Calendar integration** for automatic 1:1 time-range detection.
 - **Cross-platform identity reconciliation** — no more manual `display name → GitHub handle → Slack user id` mapping.
 
+## v0.2.0 — shipped
+
+Evidence auditability and daily loop features.
+
+- **Evidence cards** — rich popovers on citation hover/click with source-specific metadata
+- **Citation scroll sync** — slide-out evidence panel with bidirectional highlighting
+- **Confidence indicators** — green/amber/red per-section badges with LLM signal
+- **Timeline strip** — activity sparkline with colored source markers
+- **Follow-up tracker** — markdown-backed Kanban with auto-creation from sessions
+- **Team heatmap** — member × day activity grid with evidence drill-down
+- **Evidence graph** — SVG relationship visualization between evidence items
+
 ## Explicitly not on the roadmap
 
 These are things people will ask for that Keepr is deliberately not going to do:

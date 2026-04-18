@@ -19,8 +19,9 @@ import * as slack from "../services/slack";
 import * as github from "../services/github";
 import * as jira from "../services/jira";
 import * as linear from "../services/linear";
-import type { AppConfig, TeamMember } from "../lib/types";
-import { DEFAULT_CONFIG } from "../lib/types";
+import type { AppConfig, FeatureFlags, TeamMember } from "../lib/types";
+import { DEFAULT_CONFIG, DEFAULT_FEATURE_FLAGS } from "../lib/types";
+import { GitHubIcon, SlackIcon, JiraIcon, LinearIcon } from "../components/primitives/SourceBadge";
 
 export function Settings() {
   const [cfg, setCfg] = useState<AppConfig>(DEFAULT_CONFIG);
@@ -602,6 +603,43 @@ export function Settings() {
             }}>Use default</Ghost>
           </div>
         </Panel>
+
+        <Panel title="Experimental">
+          <p className="mb-4 text-xs text-ink-faint">
+            Toggle new features. All are enabled by default.
+          </p>
+          {(
+            [
+              ["evidence_cards", "Evidence cards", "Rich popover previews on citation hover"],
+              ["citation_sync", "Citation scroll sync", "Side-by-side reading and evidence layout"],
+              ["confidence", "Confidence indicators", "Evidence density dots on section headings"],
+              ["timeline", "Timeline strip", "Activity visualization for 1:1 prep sessions"],
+              ["followups", "Follow-up tracker", "Track and manage follow-ups from sessions"],
+              ["team_heatmap", "Team heatmap", "Activity heatmap grid for team members"],
+              ["thread_graph", "Thread graph", "Relationship graph between evidence items"],
+            ] as const
+          ).map(([key, label, desc]) => {
+            const flags = cfg.feature_flags || DEFAULT_FEATURE_FLAGS;
+            return (
+              <label key={key} className="mb-3 flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={flags[key]}
+                  onChange={async () => {
+                    const next: FeatureFlags = { ...flags, [key]: !flags[key] };
+                    await setConfig({ feature_flags: next });
+                    setCfg({ ...cfg, feature_flags: next });
+                  }}
+                  className="mt-1 h-4 w-4 rounded border-hairline text-ink accent-ink"
+                />
+                <div>
+                  <div className="text-xs font-medium text-ink">{label}</div>
+                  <div className="text-[11px] text-ink-faint">{desc}</div>
+                </div>
+              </label>
+            );
+          })}
+        </Panel>
       </div>
     </div>
   );
@@ -611,40 +649,22 @@ const inputCls =
   "w-full rounded-md border border-hairline bg-canvas px-3 py-2 text-sm text-ink placeholder:text-ink-ghost focus:border-ink/40 focus:outline-none transition-colors duration-180";
 
 const PANEL_ICONS: Record<string, React.ReactNode> = {
-  Slack: (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M3.5 9.5a1.5 1.5 0 1 1 0-3h3v3a1.5 1.5 0 0 1-3 0z" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M9.5 3.5a1.5 1.5 0 1 1 3 0v3h-3a1.5 1.5 0 0 1 0-3z" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M12.5 9.5a1.5 1.5 0 1 1 0 3h-3v-3a1.5 1.5 0 0 1 3 0z" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M6.5 12.5a1.5 1.5 0 1 1-3 0v-3h3a1.5 1.5 0 0 1 0 3z" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  GitHub: (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M8 1.5A6.5 6.5 0 0 0 5.94 14.18c.33.06.44-.14.44-.31v-1.1c-1.82.4-2.2-.87-2.2-.87a1.73 1.73 0 0 0-.73-.95c-.59-.41.05-.4.05-.4a1.37 1.37 0 0 1 1 .68 1.4 1.4 0 0 0 1.9.54 1.38 1.38 0 0 1 .42-.88c-1.45-.16-2.98-.72-2.98-3.23a2.53 2.53 0 0 1 .67-1.76 2.35 2.35 0 0 1 .06-1.73s.55-.18 1.8.67a6.2 6.2 0 0 1 3.26 0c1.25-.85 1.8-.67 1.8-.67a2.35 2.35 0 0 1 .07 1.73 2.53 2.53 0 0 1 .67 1.76c0 2.52-1.53 3.07-2.99 3.23a1.56 1.56 0 0 1 .44 1.2v1.78c0 .17.12.38.45.31A6.5 6.5 0 0 0 8 1.5z" stroke="currentColor" strokeWidth="0.8" fill="currentColor" />
-    </svg>
-  ),
-  Jira: (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M14 2H8.24a3.1 3.1 0 0 0 3.1 3.1H12v.66a3.1 3.1 0 0 0 3.1 3.1V3.1A1.1 1.1 0 0 0 14 2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-      <path d="M11 5H5.24a3.1 3.1 0 0 0 3.1 3.1H9v.66a3.1 3.1 0 0 0 3.1 3.1V6.1A1.1 1.1 0 0 0 11 5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-      <path d="M8 8H2.24a3.1 3.1 0 0 0 3.1 3.1H6v.66A3.1 3.1 0 0 0 9.1 14.86V9.1A1.1 1.1 0 0 0 8 8z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-    </svg>
-  ),
-  Linear: (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M2.4 10.4a6.5 6.5 0 0 0 3.2 3.2L2.4 10.4z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M1.5 8a6.5 6.5 0 0 0 .4 2.2L8.2 3.9A6.5 6.5 0 0 0 1.5 8z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5.8 2.4a6.5 6.5 0 0 1 7.8 7.8L5.8 2.4z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M12.1 11.6a6.5 6.5 0 0 1-1.7 1.7l1.7-1.7z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
+  Slack: <SlackIcon size={16} />,
+  GitHub: <GitHubIcon size={16} />,
+  Jira: <JiraIcon size={16} />,
+  Linear: <LinearIcon size={16} />,
   Model: (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
       <rect x="2" y="4" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
       <circle cx="5.5" cy="8" r="1" stroke="currentColor" strokeWidth="1.1" />
       <circle cx="10.5" cy="8" r="1" stroke="currentColor" strokeWidth="1.1" />
       <path d="M7 8h2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  ),
+  Experimental: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M6 2h4M7 2v4l-3.5 6a1 1 0 0 0 .87 1.5h7.26a1 1 0 0 0 .87-1.5L9 6V2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 10h6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
     </svg>
   ),
 };

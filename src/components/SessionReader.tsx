@@ -1,13 +1,25 @@
 // The session reader — a "beautifully set document" with bidirectional
-// citation scroll. Top region is the generated reading flow; bottom region
-// is the evidence panel, set on the same canvas so nothing feels boxed.
+// citation scroll. Integrates evidence cards, confidence indicators,
+// citation scroll sync (split layout), and timeline strip.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { writeTextFile } from "@tauri-apps/plugin-fs";
-import type { EvidenceItem, SessionRow, TeamMember } from "../lib/types";
+import type { EvidenceItem, FeatureFlags, SessionRow, TeamMember } from "../lib/types";
+import { DEFAULT_FEATURE_FLAGS } from "../lib/types";
 import { renderMarkdown } from "../lib/markdown";
+import { getConfig } from "../services/db";
+import { iconFor, labelFor } from "./primitives/SourceBadge";
+import { CitationPopover } from "../features/evidence-cards/CitationPopover";
+import { computeSectionConfidence } from "../features/confidence/computeConfidence";
+import { ConfidencePortals } from "../features/confidence/ConfidenceBadge";
+import { SplitLayout } from "../features/citation-sync/SplitLayout";
+import { useClaimHighlight } from "../features/citation-sync/ClaimHighlight";
+import { TimelineStrip } from "../features/timeline/TimelineStrip";
+
+// Re-export for backward compat.
+export { iconFor, labelFor };
 
 const WORKFLOW_LABELS: Record<string, string> = {
   team_pulse: "Team pulse",
@@ -16,6 +28,12 @@ const WORKFLOW_LABELS: Record<string, string> = {
   perf_evaluation: "Perf evaluation",
   promo_readiness: "Promo readiness",
 };
+
+const PER_MEMBER_WORKFLOWS = new Set([
+  "one_on_one_prep",
+  "perf_evaluation",
+  "promo_readiness",
+]);
 
 /**
  * Per-member workflows get the target member's name appended to the title
@@ -56,8 +74,16 @@ export function SessionReader({
   const [evidenceOpen, setEvidenceOpen] = useState(true);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [flags, setFlags] = useState<FeatureFlags>(DEFAULT_FEATURE_FLAGS);
   const readingRef = useRef<HTMLDivElement>(null);
   const evidenceRef = useRef<HTMLDivElement>(null);
+
+  // Load feature flags from config.
+  useEffect(() => {
+    getConfig().then((cfg) => {
+      if (cfg.feature_flags) setFlags(cfg.feature_flags);
+    });
+  }, []);
 
   const evById = useMemo(() => {
     const map = new Map<string, EvidenceItem>();
@@ -69,6 +95,27 @@ export function SessionReader({
     () => renderMarkdown(markdown, evById),
     [markdown, evById]
   );
+
+  // Confidence computation.
+  const confidences = useMemo(() => {
+    if (!flags.confidence) return [];
+    return computeSectionConfidence(markdown, evidence);
+  }, [markdown, evidence, flags.confidence]);
+
+  // Confidence badge portals.
+  const { sync: syncConfidence, portals: confidencePortals } = ConfidencePortals({
+    confidences,
+    containerRef: readingRef,
+  });
+
+  // After markdown renders, mount confidence badges.
+  useEffect(() => {
+    if (flags.confidence && confidences.length > 0) {
+      // Small delay to ensure DOM is ready.
+      const id = requestAnimationFrame(() => syncConfidence());
+      return () => cancelAnimationFrame(id);
+    }
+  }, [rendered, flags.confidence, confidences, syncConfidence]);
 
   // Delegate citation clicks.
   useEffect(() => {
@@ -99,15 +146,28 @@ export function SessionReader({
     }
   }, [activeCite, rendered]);
 
+  // Bidirectional claim <-> evidence highlighting.
+  useClaimHighlight(readingRef, evidenceRef, flags.citation_sync);
+
   const onEvidenceClick = (id: string) => {
     setActiveCite(id);
     const node = readingRef.current?.querySelector(`[data-ev="${id}"]`);
     node?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
+  const onGoToEvidence = useCallback(
+    (id: string) => {
+      setActiveCite(id);
+      if (!evidenceOpen) setEvidenceOpen(true);
+      requestAnimationFrame(() => {
+        const node = evidenceRef.current?.querySelector(`[data-ev-target="${id}"]`);
+        node?.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    },
+    [evidenceOpen]
+  );
+
   // Export actions — build the export text once, use it for copy + save.
-  // Appends the evidence list as a footnote-style block so the exported
-  // .md remains fully self-contained when pasted into Notion / a PR / etc.
   const buildExport = () => {
     const lines: string[] = [markdown.trim(), ""];
     if (evidence.length) {
@@ -128,8 +188,7 @@ export function SessionReader({
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
-      // Clipboard API may be unavailable in some Tauri dev contexts;
-      // silently no-op rather than alert the user.
+      // Clipboard API may be unavailable in some Tauri dev contexts.
     }
   };
 
@@ -154,9 +213,6 @@ export function SessionReader({
   };
 
   const onPrint = async () => {
-    // Tauri's webview doesn't support window.print(). Instead, write a
-    // self-contained HTML file to the OS temp dir and open it in the
-    // system browser where the user can Cmd+P / Save as PDF natively.
     try {
       const { appDataDir } = await import("@tauri-apps/api/path");
       const { openPath } = await import("@tauri-apps/plugin-opener");
@@ -200,11 +256,7 @@ ${rendered}
     }
   };
 
-  // Failed-session branch — render a composed error card in place of the
-  // reading view. Lifts the vocabulary from BootErrorScreen in App.tsx
-  // (same two-action composition: primary = recovery, secondary = exit).
-  // Plain `return` instead of early-return-inside-render so all the hooks
-  // above run on every render (React rules of hooks).
+  // Failed-session branch.
   if (session.status === "failed") {
     return (
       <SessionErrorCard
@@ -216,93 +268,128 @@ ${rendered}
     );
   }
 
-  return (
-    <div className="flex h-full flex-col">
-      <div className="flex-1 overflow-y-auto px-12 pt-14 pb-10">
-        <div className="mx-auto max-w-[680px]">
-          {/* Compact metadata header — replaces the LLM's h1 which is
-              hidden via CSS below. Shows type + date range + actions. */}
-          <div className="no-print mb-10">
-            {/* Notion-style page title: bold type + friendly date below */}
-            <h1 className="text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] text-ink">
-              {buildTitle(session, targetMember)}
-            </h1>
-            <div className="mt-2 flex items-center gap-3 text-[14px] text-ink-muted">
-              <span>{fmtFriendly(session.time_range_start, session.time_range_end)}</span>
-              <span className="text-ink-ghost">·</span>
-              <span className="tabular-nums text-[13px]">
-                {fmtRange(session.time_range_start, session.time_range_end)}
-              </span>
-            </div>
-            <div className="mt-4 flex items-center gap-1">
-              <ActionButton
-                onClick={onCopy}
-                label={copied ? "Copied" : "Copy"}
-              />
-              <ActionButton
-                onClick={onSave}
-                label={saved ? "Saved" : "Save .md"}
-              />
-              <ActionButton onClick={onPrint} label="Export PDF" />
-            </div>
+  const showTimeline =
+    flags.timeline && PER_MEMBER_WORKFLOWS.has(session.workflow_type);
+
+  // --- Named JSX blocks for split layout ---
+
+  const readingPane = (
+    <div className="flex-1 overflow-y-auto px-12 pt-14 pb-10">
+      <div className="mx-auto max-w-[680px]">
+        {/* Compact metadata header */}
+        <div className="no-print mb-10">
+          <h1 className="text-[32px] font-semibold leading-[1.15] tracking-[-0.02em] text-ink">
+            {buildTitle(session, targetMember)}
+          </h1>
+          <div className="mt-2 flex items-center gap-3 text-[14px] text-ink-muted">
+            <span>{fmtFriendly(session.time_range_start, session.time_range_end)}</span>
+            <span className="text-ink-ghost">·</span>
+            <span className="tabular-nums text-[13px]">
+              {fmtRange(session.time_range_start, session.time_range_end)}
+            </span>
+          </div>
+          <div className="mt-4 flex items-center gap-1">
+            <ActionButton
+              onClick={onCopy}
+              label={copied ? "Copied" : "Copy"}
+            />
+            <ActionButton
+              onClick={onSave}
+              label={saved ? "Saved" : "Save .md"}
+            />
+            <ActionButton onClick={onPrint} label="Export PDF" />
           </div>
         </div>
-        <div
-          ref={readingRef}
-          className="reading rise"
-          dangerouslySetInnerHTML={{ __html: rendered }}
-          data-active-cite={activeCite || ""}
-        />
       </div>
 
+      {/* Timeline strip — only for per-member workflows */}
+      {showTimeline && (
+        <div className="mx-auto max-w-[680px] mb-6 hair-b pb-4">
+          <TimelineStrip
+            evidence={evidence}
+            members={members}
+            rangeStart={session.time_range_start}
+            rangeEnd={session.time_range_end}
+            onCiteScroll={onGoToEvidence}
+          />
+        </div>
+      )}
+
       <div
-        className={`hair-t bg-canvas px-12 transition-all duration-220 ease-out ${
-          evidenceOpen ? "max-h-[38vh] overflow-y-auto py-7" : "py-3"
-        }`}
-        ref={evidenceRef}
-      >
-        <div className="mx-auto max-w-[680px]">
-          <button
-            onClick={() => setEvidenceOpen((o) => !o)}
-            className="group mb-4 flex w-full items-center justify-between py-1 text-left transition-colors duration-180 hover:text-ink"
-            aria-expanded={evidenceOpen}
-          >
-            <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint group-hover:text-ink">
-              <svg
-                width="10"
-                height="10"
-                viewBox="0 0 12 12"
-                fill="none"
-                aria-hidden
-                className={`transition-transform duration-220 ease-out ${
-                  evidenceOpen ? "rotate-90" : ""
-                }`}
-              >
-                <path
-                  d="M4 2.5l4 3.5-4 3.5"
-                  stroke="currentColor"
-                  strokeWidth="1.3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              Evidence
-            </div>
-            <div className="mono text-[10px] tabular-nums text-ink-ghost">
-              {evidence.length}
-            </div>
-          </button>
-          {evidenceOpen && (
+        ref={readingRef}
+        className="reading rise"
+        dangerouslySetInnerHTML={{ __html: rendered }}
+        data-active-cite={activeCite || ""}
+      />
+
+      {/* Confidence badge portals */}
+      {flags.confidence && confidencePortals}
+
+      {/* Citation popover */}
+      <CitationPopover
+        readingRef={readingRef}
+        evById={evById}
+        members={members}
+        enabled={flags.evidence_cards}
+        onGoToEvidence={onGoToEvidence}
+      />
+    </div>
+  );
+
+  const evidencePane = (
+    <div
+      className={`bg-canvas transition-all duration-220 ease-out ${
+        flags.citation_sync
+          ? "h-full overflow-y-auto px-5 py-5"
+          : `hair-t px-12 ${evidenceOpen ? "max-h-[38vh] overflow-y-auto py-7" : "py-3"}`
+      }`}
+      ref={evidenceRef}
+    >
+      <div className={flags.citation_sync ? "" : "mx-auto max-w-[680px]"}>
+        <button
+          onClick={() => setEvidenceOpen((o) => !o)}
+          className="group mb-4 flex w-full items-center justify-between py-1 text-left transition-colors duration-180 hover:text-ink"
+          aria-expanded={evidenceOpen}
+        >
+          <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint group-hover:text-ink">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 12 12"
+              fill="none"
+              aria-hidden
+              className={`transition-transform duration-220 ease-out ${
+                evidenceOpen ? "rotate-90" : ""
+              }`}
+            >
+              <path
+                d="M4 2.5l4 3.5-4 3.5"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Evidence
+          </div>
+          <div className="mono text-[10px] tabular-nums text-ink-ghost">
+            {evidence.length}
+          </div>
+        </button>
+        {evidenceOpen && (
           <div className="flex flex-col">
             {evidence.map((ev, i) => {
               const id = `ev_${i + 1}`;
               const active = id === activeCite;
               return (
-                <button
+                <div
                   key={ev.id}
+                  role="button"
+                  tabIndex={0}
                   data-ev-target={id}
                   onClick={() => onEvidenceClick(id)}
-                  className={`group relative flex items-start gap-4 rounded-md px-2 py-2.5 text-left text-xs transition-colors duration-180 ${
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onEvidenceClick(id); } }}
+                  className={`group relative flex cursor-pointer items-start gap-4 rounded-md px-2 py-2.5 text-left text-xs transition-colors duration-180 ${
                     active
                       ? "bg-[rgba(10,10,10,0.045)]"
                       : "hover:bg-[rgba(10,10,10,0.025)]"
@@ -352,7 +439,7 @@ ${rendered}
                       </button>
                     </div>
                   </div>
-                </button>
+                </div>
               );
             })}
             {evidence.length === 0 && (
@@ -365,77 +452,39 @@ ${rendered}
               </div>
             )}
           </div>
-          )}
-        </div>
-      </div>
-
-      <div className="hair-t flex items-center justify-between bg-canvas px-8 py-2 text-[10px] uppercase tracking-[0.12em] text-ink-faint">
-        <div>
-          {WORKFLOW_LABELS[session.workflow_type] || session.workflow_type}
-          <span className="mx-2 text-ink-ghost">·</span>
-          <span className="tabular-nums normal-case tracking-normal">
-            {new Date(session.time_range_start).toLocaleDateString()} →{" "}
-            {new Date(session.time_range_end).toLocaleDateString()}
-          </span>
-        </div>
-        {session.output_file_path && (
-          <div className="mono truncate normal-case tracking-normal text-ink-ghost">
-            {session.output_file_path}
-          </div>
         )}
       </div>
     </div>
   );
-}
 
-const SOURCE_ICONS: Record<string, React.ReactNode> = {
-  github: (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M8 1.5A6.5 6.5 0 0 0 5.94 14.18c.33.06.44-.14.44-.31v-1.1c-1.82.4-2.2-.87-2.2-.87a1.73 1.73 0 0 0-.73-.95c-.59-.41.05-.4.05-.4a1.37 1.37 0 0 1 1 .68 1.4 1.4 0 0 0 1.9.54 1.38 1.38 0 0 1 .42-.88c-1.45-.16-2.98-.72-2.98-3.23a2.53 2.53 0 0 1 .67-1.76 2.35 2.35 0 0 1 .06-1.73s.55-.18 1.8.67a6.2 6.2 0 0 1 3.26 0c1.25-.85 1.8-.67 1.8-.67a2.35 2.35 0 0 1 .07 1.73 2.53 2.53 0 0 1 .67 1.76c0 2.52-1.53 3.07-2.99 3.23a1.56 1.56 0 0 1 .44 1.2v1.78c0 .17.12.38.45.31A6.5 6.5 0 0 0 8 1.5z" stroke="currentColor" strokeWidth="0.8" fill="currentColor" />
-    </svg>
-  ),
-  slack: (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M3.5 9.5a1.5 1.5 0 1 1 0-3h3v3a1.5 1.5 0 0 1-3 0z" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M9.5 3.5a1.5 1.5 0 1 1 3 0v3h-3a1.5 1.5 0 0 1 0-3z" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M12.5 9.5a1.5 1.5 0 1 1 0 3h-3v-3a1.5 1.5 0 0 1 3 0z" stroke="currentColor" strokeWidth="1.1" />
-      <path d="M6.5 12.5a1.5 1.5 0 1 1-3 0v-3h3a1.5 1.5 0 0 1 0 3z" stroke="currentColor" strokeWidth="1.1" />
-    </svg>
-  ),
-  jira: (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M14 2H8.24a3.1 3.1 0 0 0 3.1 3.1H12v.66a3.1 3.1 0 0 0 3.1 3.1V3.1A1.1 1.1 0 0 0 14 2z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-      <path d="M11 5H5.24a3.1 3.1 0 0 0 3.1 3.1H9v.66a3.1 3.1 0 0 0 3.1 3.1V6.1A1.1 1.1 0 0 0 11 5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-      <path d="M8 8H2.24a3.1 3.1 0 0 0 3.1 3.1H6v.66A3.1 3.1 0 0 0 9.1 14.86V9.1A1.1 1.1 0 0 0 8 8z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-    </svg>
-  ),
-  linear: (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M2.4 10.4a6.5 6.5 0 0 0 3.2 3.2L2.4 10.4z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M1.5 8a6.5 6.5 0 0 0 .4 2.2L8.2 3.9A6.5 6.5 0 0 0 1.5 8z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M5.8 2.4a6.5 6.5 0 0 1 7.8 7.8L5.8 2.4z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M12.1 11.6a6.5 6.5 0 0 1-1.7 1.7l1.7-1.7z" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  ),
-};
+  const statusBar = (
+    <div className="hair-t flex items-center justify-between bg-canvas px-8 py-2 text-[10px] uppercase tracking-[0.12em] text-ink-faint">
+      <div>
+        {WORKFLOW_LABELS[session.workflow_type] || session.workflow_type}
+        <span className="mx-2 text-ink-ghost">·</span>
+        <span className="tabular-nums normal-case tracking-normal">
+          {new Date(session.time_range_start).toLocaleDateString()} →{" "}
+          {new Date(session.time_range_end).toLocaleDateString()}
+        </span>
+      </div>
+      {session.output_file_path && (
+        <div className="mono truncate normal-case tracking-normal text-ink-ghost">
+          {session.output_file_path}
+        </div>
+      )}
+    </div>
+  );
 
-function iconFor(src: string): React.ReactNode {
-  if (src.startsWith("github")) return SOURCE_ICONS.github;
-  if (src.startsWith("slack")) return SOURCE_ICONS.slack;
-  if (src.startsWith("jira")) return SOURCE_ICONS.jira;
-  if (src.startsWith("linear")) return SOURCE_ICONS.linear;
-  return null;
-}
-
-function labelFor(src: string): string {
-  if (src === "github_pr") return "Pull request";
-  if (src === "github_review") return "Review";
-  if (src === "slack_message") return "Slack";
-  if (src === "jira_issue") return "Jira issue";
-  if (src === "jira_comment") return "Jira comment";
-  if (src === "linear_issue") return "Linear issue";
-  if (src === "linear_comment") return "Linear comment";
-  return src.replace(/_/g, " ");
+  return (
+    <SplitLayout
+      enabled={flags.citation_sync}
+      evidenceOpen={evidenceOpen}
+      onToggleEvidence={() => setEvidenceOpen((o) => !o)}
+      reading={readingPane}
+      evidence={evidencePane}
+      statusBar={statusBar}
+    />
+  );
 }
 
 // Notion-style friendly date: "Last week" / "This week" / "Wednesday, Apr 9"
@@ -501,11 +550,6 @@ function ActionButton({
   );
 }
 
-// Rendered in place of the reading view when a session has
-// status='failed'. Same visual vocabulary as BootErrorScreen in App.tsx:
-// serif display title, subdued body, two clear actions. "Try again"
-// re-dispatches the same workflow via App.tsx; "Delete" removes the
-// failed row (and its cascaded evidence) so the sidebar stays clean.
 function SessionErrorCard({
   session,
   targetMember,

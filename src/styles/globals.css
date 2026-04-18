@@ -356,6 +356,35 @@ kbd.kbd,
   animation: slide-calm 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* Evidence card — used in citation popovers and timeline detail. */
+.evidence-card {
+  transition: box-shadow 180ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.evidence-popover {
+  z-index: 9999;
+}
+
+/* Line clamp utility for evidence body text. */
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Bidirectional claim <-> evidence highlighting. */
+.cite-highlighted {
+  color: var(--canvas) !important;
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  transition: all 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.ev-highlighted {
+  background: rgba(47, 58, 76, 0.06) !important;
+  box-shadow: inset 2px 0 0 var(--accent);
+  transition: all 150ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 /* Selection — keep it in the monochromatic ladder. */
 ::selection {
   background: rgba(47, 58, 76, 0.18);

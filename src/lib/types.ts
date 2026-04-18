@@ -70,6 +70,16 @@ export interface LinearTeam {
   name: string;
 }
 
+export interface FeatureFlags {
+  evidence_cards: boolean;
+  citation_sync: boolean;
+  confidence: boolean;
+  timeline: boolean;
+  followups: boolean;
+  team_heatmap: boolean;
+  thread_graph: boolean;
+}
+
 export interface AppConfig {
   memory_dir: string;
   selected_slack_channels: Array<{ id: string; name: string }>;
@@ -86,6 +96,7 @@ export interface AppConfig {
   privacy_consent_at: string | null;
   onboarded_at: string | null;
   engineering_rubric: string | null;
+  feature_flags: FeatureFlags;
 }
 
 export interface PersonFact {
@@ -106,6 +117,28 @@ export interface QueryHistoryItem {
   created_at: string;
 }
 
+export interface FollowUp {
+  id: number;
+  file_path: string;
+  subject: string;
+  description: string;
+  state: "open" | "carried" | "resolved";
+  origin_session: number | null;
+  origin_member_id: number | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
+  evidence_cards: true,
+  citation_sync: true,
+  confidence: true,
+  timeline: true,
+  followups: true,
+  team_heatmap: true,
+  thread_graph: true,
+};
+
 export const DEFAULT_CONFIG: AppConfig = {
   memory_dir: "",
   selected_slack_channels: [],
@@ -122,4 +155,5 @@ export const DEFAULT_CONFIG: AppConfig = {
   privacy_consent_at: null,
   onboarded_at: null,
   engineering_rubric: null,
+  feature_flags: DEFAULT_FEATURE_FLAGS,
 };

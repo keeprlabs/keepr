@@ -14,6 +14,9 @@ import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
 import { Settings } from "./screens/Settings";
 import { MemoryView } from "./screens/MemoryView";
+import { FollowUps } from "./screens/FollowUps";
+import { TeamHeatmap } from "./screens/TeamHeatmap";
+import { ThreadGraph } from "./screens/ThreadGraph";
 import { FirstRun } from "./components/onboarding/FirstRun";
 import {
   archiveSession,
@@ -383,6 +386,30 @@ export default function App() {
         run: () => setView({ kind: "settings" }),
       },
       {
+        id: "followups",
+        label: "Follow-ups",
+        keywords: "follow-ups followups action items tracking",
+        run: () => setView({ kind: "followups" }),
+      },
+      {
+        id: "new_followup",
+        label: "New follow-up",
+        keywords: "create new follow-up action item",
+        run: () => setView({ kind: "followups" }),
+      },
+      {
+        id: "team_heatmap",
+        label: "Team heatmap",
+        keywords: "heatmap activity grid team members",
+        run: () => setView({ kind: "heatmap" }),
+      },
+      {
+        id: "thread_graph",
+        label: "Evidence graph",
+        keywords: "graph relationships threads connections",
+        run: () => setView({ kind: "graph" }),
+      },
+      {
         id: "reveal_finder",
         label: "Reveal memory directory in Finder",
         keywords: "finder reveal open directory",
@@ -557,6 +584,9 @@ export default function App() {
               title={view.slug.replace(/-/g, " ")}
             />
           )}
+          {view.kind === "followups" && <FollowUps members={members} />}
+          {view.kind === "heatmap" && <TeamHeatmap members={members} />}
+          {view.kind === "graph" && <ThreadGraph members={members} />}
           {view.kind === "settings" && <Settings />}
         </main>
       </div>

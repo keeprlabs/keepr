@@ -23,6 +23,9 @@
 import { join } from "@tauri-apps/api/path";
 import teamPulsePrompt from "../prompts/team_pulse.md?raw";
 import onePrepPrompt from "../prompts/one_on_one_prep.md?raw";
+import weeklyUpdatePrompt from "../prompts/weekly_eng_update.md?raw";
+import perfEvalPrompt from "../prompts/perf_evaluation.md?raw";
+import promoReadyPrompt from "../prompts/promo_readiness.md?raw";
 import haikuPrompt from "../prompts/haiku_channel_summary.md?raw";
 
 import {
@@ -52,6 +55,8 @@ import {
   DEMO_MEMBERS,
   DEMO_PRS,
   DEMO_SLACK_MESSAGES,
+  DEMO_JIRA_ISSUES,
+  DEMO_LINEAR_ISSUES,
   type DemoSlackMsg,
 } from "../demo/fixtures";
 
@@ -95,6 +100,8 @@ export async function seedDemoData(): Promise<void> {
   // connect things.
   await upsertIntegration("slack", { demo: true, team: "Acme (demo)" });
   await upsertIntegration("github", { demo: true, login: "acme-demo" });
+  await upsertIntegration("jira", { demo: true, site: "acme-demo.atlassian.net" });
+  await upsertIntegration("linear", { demo: true, org: "Acme (demo)" });
 
   // Insert the synthetic team. If any of these already exist (user ran
   // the demo twice), upsertMember via slug dedupe happens downstream — but
@@ -137,7 +144,7 @@ export async function exitDemoMode(): Promise<void> {
     "DELETE FROM team_members WHERE slack_user_id LIKE 'U0DEMO%'"
   );
 
-  await d.execute("DELETE FROM integrations WHERE provider IN ('slack','github')");
+  await d.execute("DELETE FROM integrations WHERE provider IN ('slack','github','jira','linear')");
 
   await setConfig({
     demo_mode: false,
@@ -251,6 +258,64 @@ function buildDemoEvidence(members: TeamMember[]): NormalizedItem[] {
     }
   }
 
+  // ---- Jira ----
+  for (const issue of DEMO_JIRA_ISSUES) {
+    const assignee = lookupBySeed(issue.assignee);
+    const issueUrl = `https://acme-demo.atlassian.net/browse/${issue.issue_key}`;
+    out.push({
+      source: "jira_issue",
+      source_id: issue.issue_key,
+      source_url: issueUrl,
+      timestamp_at: hoursAgoToIso(issue.hours_ago),
+      content: `${issue.issue_key}: ${issue.summary} [${issue.status}]\n\n${issue.description}`.trim(),
+      actor_slack: null,
+      actor_github: assignee?.github_handle ?? null,
+      bucket: `jira:${issue.project_key}`,
+    });
+    for (const c of issue.comments) {
+      const cAuthor = lookupBySeed(c.author);
+      out.push({
+        source: "jira_comment",
+        source_id: `${issue.issue_key}:comment:${c.author}:${c.hours_ago}`,
+        source_url: issueUrl,
+        timestamp_at: hoursAgoToIso(c.hours_ago),
+        content: `Comment on ${issue.issue_key}: ${c.body}`,
+        actor_slack: cAuthor?.slack_user_id ?? null,
+        actor_github: cAuthor?.github_handle ?? null,
+        bucket: `jira:${issue.project_key}`,
+      });
+    }
+  }
+
+  // ---- Linear ----
+  for (const issue of DEMO_LINEAR_ISSUES) {
+    const assignee = lookupBySeed(issue.assignee);
+    const issueUrl = `https://linear.app/acme-demo/issue/${issue.issue_id}`;
+    out.push({
+      source: "linear_issue",
+      source_id: issue.issue_id,
+      source_url: issueUrl,
+      timestamp_at: hoursAgoToIso(issue.hours_ago),
+      content: `${issue.issue_id}: ${issue.title} [${issue.state}] [${issue.priority}]\n\n${issue.description}`.trim(),
+      actor_slack: null,
+      actor_github: assignee?.github_handle ?? null,
+      bucket: `linear:${issue.team_key}`,
+    });
+    for (const c of issue.comments) {
+      const cAuthor = lookupBySeed(c.author);
+      out.push({
+        source: "linear_comment",
+        source_id: `${issue.issue_id}:comment:${c.author}:${c.hours_ago}`,
+        source_url: issueUrl,
+        timestamp_at: hoursAgoToIso(c.hours_ago),
+        content: `Comment on ${issue.issue_id}: ${c.body}`,
+        actor_slack: cAuthor?.slack_user_id ?? null,
+        actor_github: cAuthor?.github_handle ?? null,
+        bucket: `linear:${issue.team_key}`,
+      });
+    }
+  }
+
   return out;
 }
 
@@ -332,8 +397,9 @@ export async function runDemoWorkflow(
   const start = new Date(end.getTime() - 7 * 24 * 3600 * 1000);
   const timeRange = { start: start.toISOString(), end: end.toISOString() };
 
+  const needsTarget = ["one_on_one_prep", "perf_evaluation", "promo_readiness"].includes(opts.workflow);
   const target =
-    opts.workflow === "one_on_one_prep" && opts.targetMemberId
+    needsTarget && opts.targetMemberId
       ? members.find((m) => m.id === opts.targetMemberId) || null
       : null;
 
@@ -353,7 +419,7 @@ export async function runDemoWorkflow(
     // Same filter logic the real pipeline uses.
     const filtered = all.filter((it) => {
       const actor = resolveActor(it, members);
-      if (opts.workflow === "one_on_one_prep" && target) {
+      if (needsTarget && target) {
         return actor?.id === target.id || mentionedTarget(it, target);
       }
       return actor != null;
@@ -503,7 +569,11 @@ export async function runDemoWorkflow(
 
     progress("synthesize", "Synthesizing the brief");
     const systemPrompt =
-      opts.workflow === "team_pulse" ? teamPulsePrompt : onePrepPrompt;
+      opts.workflow === "team_pulse" ? teamPulsePrompt
+      : opts.workflow === "weekly_update" ? weeklyUpdatePrompt
+      : opts.workflow === "perf_evaluation" ? perfEvalPrompt
+      : opts.workflow === "promo_readiness" ? promoReadyPrompt
+      : onePrepPrompt;
 
     const userBlock = [
       `# Memory context`,
@@ -533,7 +603,7 @@ export async function runDemoWorkflow(
       model: cfg.synthesis_model,
       system: systemPrompt,
       messages: [{ role: "user", content: userBlock }],
-      max_tokens: 3000,
+      max_tokens: (opts.workflow === "perf_evaluation" || opts.workflow === "promo_readiness") ? 5000 : 3000,
       temperature: 0.25,
     });
     totalInput += synth.input_tokens;

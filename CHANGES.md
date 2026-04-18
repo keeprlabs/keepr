@@ -2,6 +2,99 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
+## v0.2.0 — Auditable AI + Daily Loop (2026-04-17)
+
+### Evidence cards (Feature 1)
+- Every `[^ev_N]` citation is an interactive token: hover for a rich popover (200ms delay), click to pin
+- Source-specific card layouts: GitHub PR (repo, number, title, review state), Slack (channel, thread indicator, message), Jira/Linear (key, status badge, assignee)
+- Content parser (`parseEvidence.ts`) extracts typed metadata from the pipeline's normalized content strings — no schema changes needed
+- Shared primitives: `Popover` (fixed positioning, focus trap, escape closes, grace period), `SourceBadge` (icon + label), `EvidenceCard` (rich card with compact mode)
+
+### Citation scroll sync (Feature 2)
+- Evidence panel slides out from the right edge as an overlay — reading column stays centered at 680px
+- Bidirectional highlighting: hover a citation pill → highlight the evidence card, hover a card → highlight citing claims
+- CSS classes `.cite-highlighted` and `.ev-highlighted` with accent-colored transitions
+- Keyboard: `Alt+1` focuses reading, `Alt+2` focuses evidence panel
+- Below 960px falls back to stacked top/bottom layout
+
+### Confidence indicators (Feature 3)
+- Per-section badge: green (high), amber (medium), red (low) dots next to `<h2>` headings
+- Computed from citation count, source diversity, and recency (>14 days old downgrades one level)
+- LLM confidence signal: prompts now emit `<!-- confidence: high|medium|low -->` which overrides heuristic
+- Low-confidence sections show banner: "Limited evidence found for this section. Review before acting on it."
+- Badges mounted via React portals — no changes to markdown renderer
+
+### Timeline strip (Feature 4)
+- Activity sparkline: horizontal scrolling bar, 14 days in view, scroll left for history
+- Semantic colors by source type: blue (PRs), purple (reviews), amber (Slack), teal (Jira), indigo (Linear)
+- Tick height proportional to evidence count, hover shows breakdown tooltip with source dots
+- Click a day → popover with compact EvidenceCards
+- Only renders for per-member workflows (1:1 prep, perf eval, promo readiness)
+
+### Follow-up tracker (Feature 5)
+- Stored as markdown files in `followups/` with YAML frontmatter (state, subject, origin_session, created_at)
+- SQLite `followups` table (migration v7) indexes files for fast queries
+- Three-column board: Open | Carried (>7 days) | Resolved (last 14 days)
+- Visual urgency: amber >14 days, red >30 days
+- Keyboard: j/k navigate, x resolve, c carry, e edit, n new
+- Auto-creation from session output via `{follow_up}` tagged bullets
+- Accessible via ⌘K "follow-ups" and sidebar Tools section
+- 1:1 prep prompt updated with `{follow_up}` tag instruction
+
+### Team heatmap (Feature 6)
+- Grid: rows = members, cols = days (7/14/28 configurable)
+- Cell color = composite activity intensity, empty cells visually distinct
+- Arrow key navigation, hover tooltip with breakdown
+- Click cell → side panel with EvidenceCards for that member/day
+- Accessible via ⌘K "team heatmap" and sidebar
+
+### Evidence graph (Feature 7)
+- Force-directed layout with organic node positioning — nodes repel, edges attract, gravity centers
+- Circular nodes with official brand SVG icons (GitHub, Slack, Jira, Linear) inside
+- Node radius scales with connection count (more connections = larger node)
+- Smooth quadratic bezier curved edges, dashed for "references" relationships
+- Interactive: scroll to zoom, drag background to pan, drag individual nodes, click to pin
+- Zoom controls: +, -, fit-to-screen buttons. Zoom percentage indicator
+- Source type filter pills with colored active states
+- Detail card appears on node pin with full evidence metadata
+- Accessible via ⌘K "evidence graph" and sidebar
+
+### Demo mode enhancements
+- Added Jira fixtures: 7 issues across PAY and PLAT projects with comments
+- Added Linear fixtures: 6 issues in ENG team covering tech debt, on-call, onboarding
+- Jira and Linear integration markers seeded so sidebar shows them as connected
+- All 5 workflow types now supported in demo (was only team_pulse + one_on_one_prep)
+- Proper prompt routing and max_tokens for perf_evaluation/promo_readiness
+- Clean exit wipes Jira/Linear integrations
+
+### Brand icons
+- Official SVG icons for GitHub, Slack, Jira, and Linear used throughout the app
+- Centralized in `SourceBadge.tsx`: exported `GitHubIcon`, `SlackIcon`, `JiraIcon`, `LinearIcon` components
+- Applied in: evidence graph nodes, settings panel headers, sidebar connected section, evidence cards, citation popovers
+
+### UI polish
+- Sidebar sections now collapsible with chevron toggles — People open by default, rest collapsed
+- Evidence panel shifts reading column left instead of overlapping (smooth 220ms transition)
+- Evidence card and citation popover use solid white background (no translucency)
+- Confidence HTML comments (`<!-- confidence: medium -->`) stripped from rendered markdown
+- Nested `<button>` in evidence list fixed (outer changed to `div[role=button]`)
+- HeatmapGrid: invalid date fallback, missing React Fragment key fixed
+
+### Infrastructure
+- Feature flags for all 7 features in Settings → Experimental (all default on)
+- Window defaults to 1440×900 (IDE-sized)
+- `tabindex="0"` on all citation pills for keyboard accessibility
+- Prompt templates updated with confidence signal and follow-up parsing contracts
+- Release workflow: added GITHUB_TOKEN to tauri-action for signed DMG builds
+- Updated demo GIF covering all new features
+- Version bumped to 0.2.0
+
+### NOT modified
+- `pipeline.ts` (no structural changes)
+- Tauri plugin config (beyond migration v7)
+- `PRIVACY.md`
+- Memory file format (people/*.md, topics/*.md, status.md unchanged)
+
 ## Phase 2 — v1.5 features (2026-04-09)
 
 ### New data sources: Jira & Linear
