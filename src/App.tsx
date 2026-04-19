@@ -18,6 +18,7 @@ import { FollowUps } from "./screens/FollowUps";
 import { TeamHeatmap } from "./screens/TeamHeatmap";
 import { ThreadGraph } from "./screens/ThreadGraph";
 import { FirstRun } from "./components/onboarding/FirstRun";
+import { UpdateBanner } from "./components/UpdateBanner";
 import {
   archiveSession,
   countArchivedSessions,
@@ -530,7 +531,9 @@ export default function App() {
             onUnarchive={handleUnarchive}
           />
         )}
-        <main className="relative flex-1 overflow-hidden">
+        <main className="relative flex-1 overflow-hidden flex flex-col">
+          <UpdateBanner />
+          <div className="flex-1 overflow-hidden">
           {view.kind === "home" && showFirstRun && (
             <FirstRun
               demoMode={demoMode}
@@ -588,6 +591,7 @@ export default function App() {
           {view.kind === "heatmap" && <TeamHeatmap members={members} />}
           {view.kind === "graph" && <ThreadGraph members={members} />}
           {view.kind === "settings" && <Settings />}
+          </div>
         </main>
       </div>
 
