@@ -129,13 +129,13 @@ The honest version:
   1. To Slack and GitHub (and optionally Jira/Linear) -- the original sources. You already trust them with this data.
   2. To whichever LLM provider you configured. Raw Slack message content and PR descriptions flow into their API for synthesis. This is the main remaining trust surface.
 - **What local-first buys you:** no middleman vendor holds your data. The number of parties who see your content is two instead of three. Your team's data is never pooled with other customers'.
-- **What it does not buy you:** it does not eliminate the LLM provider from your trust model. If your company forbids sending Slack messages to Anthropic or OpenAI, Keepr cannot help you in v1.
+- **What it does not buy you:** it does not eliminate the LLM provider from your trust model. If your company forbids sending Slack messages to Anthropic or OpenAI, Keepr cannot help you today.
 
 Read the full version in [`PRIVACY.md`](./PRIVACY.md) before you connect a real work Slack.
 
 ## Roadmap
 
-v1 is team pulse plus 1:1 prep on macOS. v1.5 brings weekly engineering updates, Windows and Linux, and auto-update. v2 is the rubric-aware performance and promo work. See [`ROADMAP.md`](./ROADMAP.md) for the full picture -- v2 features are planned, not promised.
+v0.1.x shipped the foundation: five workflows, four data sources, local memory, demo mode. v0.2.0 added evidence auditability (cards, confidence, timeline, heatmap, graph) and the follow-up tracker. v0.2.1 added the CLI and Claude Code plugin. See [`ROADMAP.md`](./ROADMAP.md) for the full picture and what's next.
 
 ## Contributing
 
