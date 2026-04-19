@@ -1,0 +1,10 @@
+{
+  "name": "keepr",
+  "version": "0.2.1",
+  "description": "AI memory layer for engineering leaders. Trigger Keepr actions from Claude Code; view results in the Keepr desktop app.",
+  "author": "keeprhq",
+  "license": "MIT",
+  "homepage": "https://keeprhq.github.io/keepr",
+  "repository": "https://github.com/keeprhq/keepr",
+  "keywords": ["engineering", "management", "1on1", "team", "memory", "followups"]
+}

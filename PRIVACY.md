@@ -64,6 +64,10 @@ Keepr sends the same payload to whichever provider you picked: pruned evidence J
 
 If your employer has a relationship with one of these providers (e.g. a zero-retention addendum), configure Keepr to use that provider.
 
+## Claude Code plugin
+
+The Keepr plugin for Claude Code shells out to the local `keepr` binary on your machine. It introduces no new data flows. The plugin itself stores nothing -- it reads from and writes to the same SQLite database and memory directory the desktop app uses. The same trust surface applies: your data flows to Slack/GitHub (original sources) and your configured LLM provider. The plugin does not send data to Anthropic, Claude Code, or any other party beyond what the desktop app already does.
+
 ## Questions
 
 File an issue tagged `privacy`. If it's sensitive, reach out to the maintainers (contact on the landing page).

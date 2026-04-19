@@ -2,6 +2,55 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
+## v0.2.1 — Claude Code Plugin (2026-04-18)
+
+### CLI surface
+
+Added `keepr cli` subcommands to the desktop binary. The CLI bypasses the Tauri
+runtime entirely — reads the same SQLite DB via the system `sqlite3` binary and
+writes follow-up files directly to disk. No new Rust dependencies beyond `dirs`.
+
+- `keepr cli status` — config summary (provider, sources, memory dir, last session)
+- `keepr cli open [--session N] [--prep <name>]` — launch the GUI
+- `keepr cli add-followup "<text>" [--subject <name>]` — create a follow-up file
+- `keepr cli pulse` — open the app to run team pulse
+- `keepr cli version` — print version
+- `keepr cli check-update` — check GitHub Releases for newer version
+
+Invoking `keepr` with no subcommand still launches the GUI as before.
+
+### Claude Code plugin
+
+Plugin lives in `plugin/` with five skills:
+
+- `keepr-setup` — install or update Keepr via Homebrew (gatekeeper for all other skills)
+- `keepr-add-followup` — capture a follow-up from conversation context
+- `keepr-status` — check config and connection status
+- `keepr-open` — launch the desktop app
+- `keepr-pulse` — trigger team pulse generation
+
+Each skill checks for `keepr` on PATH first. If missing, invokes the setup
+skill which installs via `brew install --cask keeprhq/tap/keepr`.
+
+Update detection: every skill runs `keepr cli check-update` and mentions
+available updates to the user.
+
+### Homebrew cask
+
+- `homebrew/keepr.rb` — cask formula installing Keepr.app + symlink to `/usr/local/bin/keepr`
+- Release workflow auto-updates the cask SHA and pushes to `keeprhq/homebrew-tap`
+
+### Update notifications
+
+- Desktop app: `UpdateBanner` component checks GitHub Releases API on boot (cached 24h), shows dismissable banner with `brew upgrade --cask keepr` instructions
+- CLI: `keepr cli check-update` compares local version against latest release
+- Plugin: skills run check-update and mention available updates
+
+### NOT modified
+- Any v0.2.0 features, prompt templates, or TypeScript UI code
+- Memory file format
+- Privacy posture (one paragraph added noting plugin shells out locally)
+
 ## v0.2.0 — Auditable AI + Daily Loop (2026-04-17)
 
 ### Evidence cards (Feature 1)

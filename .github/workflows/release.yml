@@ -12,6 +12,8 @@ jobs:
   build-macos:
     name: Build macOS (.dmg)
     runs-on: macos-14
+    outputs:
+      dmg-name: ${{ steps.dmg-info.outputs.name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -74,7 +76,12 @@ jobs:
           releaseBody: |
             See the changelog for details.
 
-            First launch on macOS: drag Keepr to Applications, then open normally.
+            **Install via Homebrew:**
+            ```
+            brew install --cask keeprhq/tap/keepr
+            ```
+
+            Or download the `.dmg` below, drag Keepr to Applications.
           releaseDraft: true
           prerelease: false
           args: --target universal-apple-darwin
@@ -97,3 +104,91 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: --target universal-apple-darwin
+
+      - name: Upload DMG as job artifact
+        id: dmg-info
+        run: |
+          DMG=$(find src-tauri/target -name "*.dmg" -type f | head -1)
+          if [ -n "$DMG" ]; then
+            echo "path=$DMG" >> "$GITHUB_OUTPUT"
+            echo "Found DMG: $DMG"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+            echo "No DMG found"
+          fi
+
+      - name: Upload DMG for homebrew job
+        if: steps.dmg-info.outputs.path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: keepr-dmg
+          path: ${{ steps.dmg-info.outputs.path }}
+          retention-days: 1
+
+  update-homebrew:
+    name: Update Homebrew tap
+    needs: build-macos
+    runs-on: macos-14
+    if: ${{ !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download DMG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: keepr-dmg
+          path: /tmp/dmg
+
+      - name: Compute DMG SHA256
+        id: sha
+        run: |
+          DMG=$(find /tmp/dmg -name "*.dmg" -type f | head -1)
+          if [ -z "$DMG" ]; then
+            echo "No DMG artifact found, skipping homebrew update"
+            exit 0
+          fi
+          SHA=$(shasum -a 256 "$DMG" | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          echo "SHA256: $SHA"
+
+      - name: Update cask formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA="${{ steps.sha.outputs.sha256 }}"
+          sed -i '' "s/version \".*\"/version \"${VERSION}\"/" homebrew/keepr.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"${SHA}\"/" homebrew/keepr.rb
+          echo "Updated keepr.rb to version ${VERSION}, sha256 ${SHA}"
+          cat homebrew/keepr.rb
+
+      - name: Push to homebrew-tap repo
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        if: env.TAP_DEPLOY_KEY != ''
+        run: |
+          # Clone the tap repo, copy the updated formula, commit, push.
+          mkdir -p ~/.ssh
+          echo "$TAP_DEPLOY_KEY" > ~/.ssh/tap_key
+          chmod 600 ~/.ssh/tap_key
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/tap_key -o StrictHostKeyChecking=no"
+
+          git clone git@github.com:keeprhq/homebrew-tap.git /tmp/homebrew-tap
+          mkdir -p /tmp/homebrew-tap/Casks
+          cp homebrew/keepr.rb /tmp/homebrew-tap/Casks/keepr.rb
+          cd /tmp/homebrew-tap
+          git config user.name "keepr-bot"
+          git config user.email "bot@keeprhq.com"
+          git add Casks/keepr.rb
+          git diff --cached --quiet || git commit -m "Update keepr to ${{ steps.version.outputs.version }}"
+          git push origin main
+
+      - name: Update cask in this repo (fallback)
+        env:
+          TAP_DEPLOY_KEY: ${{ secrets.TAP_DEPLOY_KEY }}
+        if: env.TAP_DEPLOY_KEY == ''
+        run: |
+          echo "TAP_DEPLOY_KEY not configured. Updated homebrew/keepr.rb locally."
+          echo "To publish: copy homebrew/keepr.rb to the keeprhq/homebrew-tap repo."

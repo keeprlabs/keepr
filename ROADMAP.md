@@ -41,6 +41,15 @@ v2 is the long-term product target: the defensibility story. It only ships if v1
 - **Calendar integration** for automatic 1:1 time-range detection.
 - **Cross-platform identity reconciliation** — no more manual `display name → GitHub handle → Slack user id` mapping.
 
+## v0.2.1 — shipped
+
+Claude Code plugin and CLI surface.
+
+- **CLI subcommands** — `keepr cli status`, `open`, `add-followup`, `pulse`, `check-update`
+- **Claude Code plugin** — five skills for follow-ups, status, team pulse from the terminal
+- **Homebrew cask** — `brew install --cask keeprhq/tap/keepr` with auto-update on release
+- **Update notifications** — desktop banner + CLI check + plugin hints
+
 ## v0.2.0 — shipped
 
 Evidence auditability and daily loop features.

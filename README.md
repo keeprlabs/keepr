@@ -82,6 +82,30 @@ npx tauri build --debug --no-bundle
 ./src-tauri/target/debug/keepr
 ```
 
+## Use Keepr from Claude Code
+
+Keepr has a [Claude Code plugin](./plugin/) that lets you capture follow-ups, check status, and trigger team pulses without leaving your terminal.
+
+```bash
+# Install the desktop app first
+brew install --cask keeprhq/tap/keepr
+
+# Then add the plugin
+/plugin marketplace add keeprhq/keepr
+/plugin install keepr@keepr
+```
+
+**Available skills:**
+
+- `/keepr:keepr-add-followup` -- Capture a follow-up for a 1:1 or team conversation
+- `/keepr:keepr-status` -- Check config, connected sources, last session
+- `/keepr:keepr-open` -- Launch the desktop app
+- `/keepr:keepr-pulse` -- Generate a team pulse
+
+Skills also activate contextually -- mention wanting to track something for a 1:1 and Claude will suggest adding a follow-up.
+
+See [`plugin/README.md`](./plugin/README.md) for details.
+
 ## Architecture at a Glance
 
 ```
