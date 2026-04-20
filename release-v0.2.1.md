@@ -10,7 +10,7 @@ brew install --cask keeprhq/tap/keepr
 
 # Claude Code plugin
 /plugin marketplace add keeprhq/keepr
-/plugin install keepr@keepr
+/plugin install keepr@keeprhq-keepr
 ```
 
 ## What's new
