@@ -1,4 +1,5 @@
 ---
+name: keepr-open
 description: "Open the Keepr desktop app. Use when the user wants to view sessions, evidence, team heatmap, follow-up tracker, evidence graph, or 1:1 prep visually."
 ---
 

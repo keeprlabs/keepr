@@ -1,4 +1,5 @@
 ---
+name: keepr-setup
 description: "Install or update the Keepr desktop app. Runs automatically when other Keepr skills detect that keepr is not installed. Can also be invoked manually to check for updates."
 ---
 

@@ -90,9 +90,9 @@ Keepr has a [Claude Code plugin](./plugin/) that lets you capture follow-ups, ch
 # Install the desktop app first
 brew install --cask keeprhq/tap/keepr
 
-# Then add the plugin
+# Then add the plugin marketplace and install
 /plugin marketplace add keeprhq/keepr
-/plugin install keepr@keepr
+/plugin install keepr@keeprhq-keepr
 ```
 
 **Available skills:**

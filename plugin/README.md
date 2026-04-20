@@ -10,9 +10,9 @@ This plugin lets you trigger Keepr actions directly from Claude Code. Follow-ups
 # 1. Install the desktop app (if you haven't)
 brew install --cask keeprhq/tap/keepr
 
-# 2. Add the plugin
+# 2. Add the plugin marketplace and install
 /plugin marketplace add keeprhq/keepr
-/plugin install keepr@keepr
+/plugin install keepr@keeprhq-keepr
 ```
 
 ## Skills

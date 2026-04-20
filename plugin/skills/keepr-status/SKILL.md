@@ -1,4 +1,5 @@
 ---
+name: keepr-status
 description: "Check Keepr configuration and connection status. Use when troubleshooting Keepr, before running other Keepr commands, or when the user asks about their Keepr setup."
 ---
 

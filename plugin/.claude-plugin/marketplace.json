@@ -1,9 +1,0 @@
-{
-  "slug": "keeprhq/keepr",
-  "displayName": "Keepr",
-  "shortDescription": "AI memory layer for engineering leaders — follow-ups, team pulse, 1:1 prep from Claude Code.",
-  "category": "productivity",
-  "iconUrl": "https://keeprhq.github.io/keepr/icon-128.png",
-  "screenshots": [],
-  "installInstructions": "Requires the Keepr desktop app. Install via: brew install --cask keeprhq/tap/keepr"
-}

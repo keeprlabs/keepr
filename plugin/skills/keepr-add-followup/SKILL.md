@@ -1,4 +1,5 @@
 ---
+name: keepr-add-followup
 description: "Capture a follow-up item in Keepr. Use when the user mentions wanting to remember something for a later 1:1, surface a topic in their next team conversation, track a commitment they made to a team member, or note something to check on later."
 ---
 

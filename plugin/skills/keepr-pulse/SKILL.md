@@ -1,4 +1,5 @@
 ---
+name: keepr-pulse
 description: "Generate a team pulse in Keepr — a summary of what the team accomplished recently. Use when the user wants a quick read of team activity, asks what the team shipped this week, or wants to prepare for a team standup or all-hands. The result is viewable in the Keepr desktop app."
 ---
 
