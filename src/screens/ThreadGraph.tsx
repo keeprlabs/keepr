@@ -22,7 +22,16 @@ export function ThreadGraph({ members }: Props) {
         const ev = await listEvidence(s.id);
         allEvidence.push(...ev);
       }
-      setEvidence(allEvidence);
+      // Deduplicate across sessions: keep newest per source+source_id
+      const deduped = new Map<string, EvidenceItem>();
+      for (const ev of allEvidence) {
+        const key = `${ev.source}:${ev.source_id}`;
+        const existing = deduped.get(key);
+        if (!existing || ev.timestamp_at > existing.timestamp_at) {
+          deduped.set(key, ev);
+        }
+      }
+      setEvidence(Array.from(deduped.values()));
     })();
   }, []);
 
