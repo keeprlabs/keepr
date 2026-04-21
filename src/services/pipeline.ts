@@ -403,6 +403,7 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     progress("fetch", "Loading Slack channels & GitHub repos");
 
     const allItems: NormalizedItem[] = [];
+    const fetchErrors: string[] = [];
 
     // Each new session fetches the full time range — the incremental
     // cache is skipped (forceRefresh: true). The cache was causing
@@ -432,7 +433,9 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         allItems.push(...normalizeGithub(prs, `${repo.owner}/${repo.repo}`));
       } catch (err) {
         if (isAbortError(err)) throw err;
-        logWarn(`github fetch failed (${repo.owner}/${repo.repo}): ${errMessage(err)}`).catch(() => {});
+        const msg = errMessage(err);
+        fetchErrors.push(`GitHub ${repo.owner}/${repo.repo}: ${msg}`);
+        logWarn(`github fetch failed (${repo.owner}/${repo.repo}): ${msg}`).catch(() => {});
       }
     }
 
@@ -460,7 +463,9 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         allItems.push(...normalizeSlack(msgs));
       } catch (err) {
         if (isAbortError(err)) throw err;
-        logWarn(`slack fetch failed (#${ch.name}): ${errMessage(err)}`).catch(() => {});
+        const msg = errMessage(err);
+        fetchErrors.push(`Slack #${ch.name}: ${msg}`);
+        logWarn(`slack fetch failed (#${ch.name}): ${msg}`).catch(() => {});
       }
     }
 
@@ -478,7 +483,9 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         allItems.push(...normalizeJira(issues, proj.key));
       } catch (err) {
         if (isAbortError(err)) throw err;
-        logWarn(`jira fetch failed (${proj.key}): ${errMessage(err)}`).catch(() => {});
+        const msg = errMessage(err);
+        fetchErrors.push(`Jira ${proj.key}: ${msg}`);
+        logWarn(`jira fetch failed (${proj.key}): ${msg}`).catch(() => {});
       }
     }
 
@@ -497,7 +504,9 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         allItems.push(...normalizeLinear(issues, team.key));
       } catch (err) {
         if (isAbortError(err)) throw err;
-        logWarn(`linear fetch failed (${team.key}): ${errMessage(err)}`).catch(() => {});
+        const msg = errMessage(err);
+        fetchErrors.push(`Linear ${team.key}: ${msg}`);
+        logWarn(`linear fetch failed (${team.key}): ${msg}`).catch(() => {});
       }
     }
 
@@ -526,11 +535,14 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         sources.push(`${cfg.selected_jira_projects.length} Jira project(s)`);
       if ((cfg.selected_linear_teams || []).length)
         sources.push(`${cfg.selected_linear_teams.length} Linear team(s)`);
+      const detail = fetchErrors.length
+        ? `\n\nErrors encountered:\n${fetchErrors.map(e => `• ${e}`).join("\n")}`
+        : "\n\nNo errors were reported, which means the APIs returned empty results. " +
+          "Check that your time range has recent activity, or that your tokens have the right scopes.";
       throw new Error(
-        `Fetched from ${sources.join(" + ")} but got zero items. ` +
-        "This usually means the Slack bot token can't read the selected channels, " +
-        "or the GitHub token doesn't have access to the selected repos. " +
-        "Check Settings → Connected integrations."
+        `Fetched from ${sources.join(" + ")} but got zero items.` +
+        detail +
+        "\n\nCheck Settings → Connected integrations."
       );
     }
 

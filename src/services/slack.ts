@@ -25,9 +25,26 @@ async function slack<T = any>(
     },
     signal,
   });
+  if (res.status === 429) {
+    const retryAfter = res.headers.get("Retry-After") || "60";
+    throw new Error(
+      `Slack rate limited (retry after ${retryAfter}s). ` +
+      "If using a distributed app, Slack limits conversations.history to 1 req/min. " +
+      "Use a BYO Slack app (internal to your workspace) to avoid this limit."
+    );
+  }
   if (!res.ok) throw new Error(`Slack ${method}: HTTP ${res.status}`);
   const data = (await res.json()) as any;
-  if (!data.ok) throw new Error(`Slack ${method}: ${data.error}`);
+  if (!data.ok) {
+    if (data.error === "ratelimited") {
+      throw new Error(
+        "Slack rate limited. " +
+        "If using a distributed app, Slack limits conversations.history to 1 req/min. " +
+        "Use a BYO Slack app (internal to your workspace) to avoid this limit."
+      );
+    }
+    throw new Error(`Slack ${method}: ${data.error}`);
+  }
   return data as T;
 }
 
