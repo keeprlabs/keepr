@@ -67,6 +67,13 @@ const SCRUBBER_PATTERNS: RegExp[] = [
   /\bghs_[A-Za-z0-9]{20,}/g,
   /\bghr_[A-Za-z0-9]{20,}/g,
   /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
+  // GitLab token prefixes: glpat (PAT), glsat (group/project access token),
+  // glptt (pipeline trigger), gloas (OAuth app secret), glrt (refresh).
+  /\bglpat-[A-Za-z0-9_-]{20,}/g,
+  /\bglsat-[A-Za-z0-9_-]{20,}/g,
+  /\bglptt-[A-Za-z0-9_-]{20,}/g,
+  /\bgloas-[A-Za-z0-9_-]{20,}/g,
+  /\bglrt-[A-Za-z0-9_-]{20,}/g,
   // Linear API keys.
   /\blin_api_[A-Za-z0-9]{20,}/g,
   // JWT triplet (header.payload.signature, base64url segments).
@@ -117,6 +124,46 @@ const SLACK_MATCHERS: Matcher[] = [
     errorKind: "invalid_auth",
     detail: "token rejected — paste a fresh one",
     fixAction: "renew_token",
+  },
+];
+
+const GITLAB_MATCHERS: Matcher[] = [
+  {
+    test: (m) =>
+      m.includes("401") ||
+      m.includes("unauthorized") ||
+      m.includes("invalid_token") ||
+      m.includes("invalid token"),
+    errorKind: "unauthorized",
+    detail: "token rejected or expired",
+    fixAction: "renew_token",
+  },
+  {
+    test: (m) =>
+      m.includes("403") ||
+      m.includes("insufficient_scope") ||
+      m.includes("insufficient scope") ||
+      m.includes("forbidden"),
+    errorKind: "missing_scope",
+    detail: "missing scope — paste a token with api, read_user, read_repository",
+    fixAction: "renew_token",
+  },
+  {
+    test: (m) =>
+      m.includes("404") ||
+      m.includes("not found"),
+    errorKind: "project_not_found",
+    detail: "project no longer accessible — re-pick in Settings",
+    fixAction: "settings",
+  },
+  {
+    test: (m) =>
+      m.includes("429") ||
+      m.includes("rate limit") ||
+      m.includes("rate_limit") ||
+      m.includes("too many requests"),
+    errorKind: "rate_limited",
+    detail: "GitLab rate limit — wait a few minutes",
   },
 ];
 
@@ -192,6 +239,7 @@ const NETWORK_MATCHERS: Matcher[] = [
 const ADAPTERS: Record<IntegrationKind, Matcher[]> = {
   slack: [...SLACK_MATCHERS, ...NETWORK_MATCHERS],
   github: [...GITHUB_MATCHERS, ...NETWORK_MATCHERS],
+  gitlab: [...GITLAB_MATCHERS, ...NETWORK_MATCHERS],
   jira: [...JIRA_MATCHERS, ...NETWORK_MATCHERS],
   linear: [...LINEAR_MATCHERS, ...NETWORK_MATCHERS],
 };
@@ -243,6 +291,7 @@ export function classifyError(
 
 const EMPTY_COPY: Record<IntegrationKind, string> = {
   github: "no PRs in window",
+  gitlab: "no MRs in window",
   slack: "no messages",
   jira: "no updates",
   linear: "no issues",

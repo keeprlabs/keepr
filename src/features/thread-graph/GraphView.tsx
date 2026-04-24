@@ -10,7 +10,9 @@ import { inferEdges, type GraphEdge } from "./inferEdges";
 import { layoutGraph, type GraphNodePosition } from "./layoutGraph";
 
 const ALL_SOURCES: EvidenceSource[] = [
-  "github_pr", "github_review", "slack_message",
+  "github_pr", "github_review",
+  "gitlab_mr", "gitlab_review",
+  "slack_message",
   "jira_issue", "jira_comment", "linear_issue", "linear_comment",
 ];
 
@@ -397,6 +399,8 @@ function sourceLabel(source: EvidenceSource): string {
   switch (source) {
     case "github_pr": return "PR";
     case "github_review": return "Review";
+    case "gitlab_mr": return "MR";
+    case "gitlab_review": return "GL Review";
     case "slack_message": return "Slack";
     case "jira_issue": return "Jira";
     case "jira_comment": return "Jira comment";

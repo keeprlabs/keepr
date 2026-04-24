@@ -226,6 +226,50 @@ CREATE INDEX IF NOT EXISTS idx_followups_state ON followups(state);
 CREATE INDEX IF NOT EXISTS idx_followups_member ON followups(origin_member_id);
 "#,
         },
+        Migration {
+            version: 8,
+            description: "gitlab_support",
+            kind: MigrationKind::Up,
+            // Widen integration + evidence CHECK constraints to include GitLab,
+            // and add gitlab_username to team_members for actor resolution.
+            // Table-rebuild pattern matches migrations 3 and 5 — SQLite can't
+            // ALTER a CHECK in place.
+            sql: r#"
+-- 1) integrations: add gitlab to provider CHECK
+CREATE TABLE integrations_v8 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL CHECK (provider IN ('slack','github','gitlab','jira','linear','anthropic','openai','openrouter','custom','claude-code')),
+  metadata TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO integrations_v8 SELECT * FROM integrations;
+DROP TABLE integrations;
+ALTER TABLE integrations_v8 RENAME TO integrations;
+
+-- 2) evidence_items: add gitlab_mr, gitlab_review to source CHECK
+CREATE TABLE evidence_items_v8 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
+  source TEXT NOT NULL CHECK (source IN ('github_pr','github_review','gitlab_mr','gitlab_review','slack_message','jira_issue','jira_comment','linear_issue','linear_comment')),
+  source_url TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  actor_member_id INTEGER REFERENCES team_members(id),
+  timestamp_at DATETIME,
+  content TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO evidence_items_v8 SELECT * FROM evidence_items;
+DROP TABLE evidence_items;
+ALTER TABLE evidence_items_v8 RENAME TO evidence_items;
+
+CREATE INDEX IF NOT EXISTS idx_evidence_session ON evidence_items(session_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_actor ON evidence_items(actor_member_id);
+
+-- 3) team_members: add gitlab_username column
+ALTER TABLE team_members ADD COLUMN gitlab_username TEXT;
+"#,
+        },
     ]
 }
 

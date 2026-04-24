@@ -22,6 +22,10 @@ vi.mock("../../../services/slack", () => ({
 vi.mock("../../../services/github", () => ({
   listUserRepos: (...args: unknown[]) => listUserRepos(...args),
 }));
+const listGitlabUserProjects = vi.fn();
+vi.mock("../../../services/gitlab", () => ({
+  listUserProjects: (...args: unknown[]) => listGitlabUserProjects(...args),
+}));
 vi.mock("../../../services/jira", () => ({
   listProjects: (...args: unknown[]) => listProjects(...args),
 }));
@@ -55,6 +59,7 @@ beforeEach(() => {
   setConfigSpy.mockClear();
   listPublicChannels.mockReset();
   listUserRepos.mockReset();
+  listGitlabUserProjects.mockReset();
   listProjects.mockReset();
   listTeams.mockReset();
   vi.useFakeTimers();
@@ -491,5 +496,62 @@ describe("useScopePicker", () => {
 
     // Restore — other tests share the module.
     (db as any).setConfig = original;
+  });
+
+  // ---- GitLab adapter -----------------------------------------------------
+
+  async function mountGitlab() {
+    const hook = renderHook(() => useScopePicker("gitlab"));
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    return hook;
+  }
+
+  it("#gitlab-1 GitLab load — identity is path_with_namespace, persists {id, path_with_namespace}", async () => {
+    listGitlabUserProjects.mockResolvedValue([
+      { id: 11, name: "platform", path_with_namespace: "acme/platform" },
+      { id: 12, name: "web", path_with_namespace: "acme/web" },
+      { id: 13, name: "infra", path_with_namespace: "acme/infra" },
+    ]);
+
+    const { result } = await mountGitlab();
+
+    expect(result.current.state.kind).toBe("loaded");
+    expect(result.current.items).toHaveLength(3);
+    // Identity + labels use path_with_namespace.
+    expect(result.current.items.map((i) => i.id).sort()).toEqual([
+      "acme/infra",
+      "acme/platform",
+      "acme/web",
+    ]);
+
+    const persisted = setConfigSpy.mock.calls[0][0] as Partial<AppConfig>;
+    const projects = persisted.selected_gitlab_projects;
+    expect(projects).toBeDefined();
+    if (projects) {
+      expect(projects.every((p) => typeof p.id === "number")).toBe(true);
+      expect(projects.every((p) => typeof p.path_with_namespace === "string")).toBe(
+        true
+      );
+    }
+  });
+
+  it("#gitlab-2 honors prior config — selection is restored from selected_gitlab_projects", async () => {
+    fakeConfig = {
+      ...DEFAULT_CONFIG,
+      selected_gitlab_projects: [
+        { id: 11, path_with_namespace: "acme/platform" },
+      ],
+    };
+    listGitlabUserProjects.mockResolvedValue([
+      { id: 11, name: "platform", path_with_namespace: "acme/platform" },
+      { id: 12, name: "web", path_with_namespace: "acme/web" },
+    ]);
+
+    const { result } = await mountGitlab();
+
+    expect(result.current.selected.has("acme/platform")).toBe(true);
+    expect(result.current.selected.has("acme/web")).toBe(false);
   });
 });

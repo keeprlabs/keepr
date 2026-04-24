@@ -1,14 +1,24 @@
 // Shared domain types for Keepr.
 
-export type Provider = "slack" | "github" | "jira" | "linear" | "anthropic" | "openai" | "openrouter" | "custom" | "claude-code";
+export type Provider = "slack" | "github" | "gitlab" | "jira" | "linear" | "anthropic" | "openai" | "openrouter" | "custom" | "claude-code";
 export type WorkflowType = "team_pulse" | "one_on_one_prep" | "weekly_update" | "perf_evaluation" | "promo_readiness";
 export type SessionStatus = "pending" | "processing" | "complete" | "failed";
-export type EvidenceSource = "github_pr" | "github_review" | "slack_message" | "jira_issue" | "jira_comment" | "linear_issue" | "linear_comment";
+export type EvidenceSource =
+  | "github_pr"
+  | "github_review"
+  | "gitlab_mr"
+  | "gitlab_review"
+  | "slack_message"
+  | "jira_issue"
+  | "jira_comment"
+  | "linear_issue"
+  | "linear_comment";
 
 export interface TeamMember {
   id: number;
   display_name: string;
   github_handle: string | null;
+  gitlab_username: string | null;
   slack_user_id: string | null;
   jira_username: string | null;
   linear_username: string | null;
@@ -80,12 +90,19 @@ export interface FeatureFlags {
   thread_graph: boolean;
 }
 
+export interface GitLabProject {
+  id: number;
+  path_with_namespace: string;
+}
+
 export interface AppConfig {
   memory_dir: string;
   selected_slack_channels: Array<{ id: string; name: string }>;
   selected_github_repos: Array<{ owner: string; repo: string }>;
+  selected_gitlab_projects: GitLabProject[];
   selected_jira_projects: JiraProject[];
   selected_linear_teams: LinearTeam[];
+  gitlab_instance_url: string;
   jira_cloud_url: string;
   llm_provider: "anthropic" | "openai" | "openrouter" | "custom" | "claude-code";
   synthesis_model: string;
@@ -143,8 +160,10 @@ export const DEFAULT_CONFIG: AppConfig = {
   memory_dir: "",
   selected_slack_channels: [],
   selected_github_repos: [],
+  selected_gitlab_projects: [],
   selected_jira_projects: [],
   selected_linear_teams: [],
+  gitlab_instance_url: "https://gitlab.com",
   jira_cloud_url: "",
   llm_provider: "anthropic",
   synthesis_model: "claude-sonnet-4-6",

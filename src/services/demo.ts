@@ -54,6 +54,7 @@ import type {
 import {
   DEMO_MEMBERS,
   DEMO_PRS,
+  DEMO_MRS,
   DEMO_SLACK_MESSAGES,
   DEMO_JIRA_ISSUES,
   DEMO_LINEAR_ISSUES,
@@ -92,6 +93,7 @@ export async function seedDemoData(): Promise<void> {
     // fetchRepoActivity or fetchChannelHistory.
     selected_slack_channels: [],
     selected_github_repos: [],
+    selected_gitlab_projects: [],
     demo_mode: true,
   } as any);
 
@@ -100,6 +102,7 @@ export async function seedDemoData(): Promise<void> {
   // connect things.
   await upsertIntegration("slack", { demo: true, team: "Acme (demo)" });
   await upsertIntegration("github", { demo: true, login: "acme-demo" });
+  await upsertIntegration("gitlab", { demo: true, login: "acme-demo" });
   await upsertIntegration("jira", { demo: true, site: "acme-demo.atlassian.net" });
   await upsertIntegration("linear", { demo: true, org: "Acme (demo)" });
 
@@ -113,6 +116,7 @@ export async function seedDemoData(): Promise<void> {
     await upsertMember({
       display_name: d.display_name,
       github_handle: d.github_handle,
+      gitlab_username: d.gitlab_username,
       slack_user_id: d.slack_user_id,
       slug: d.slug,
     });
@@ -144,7 +148,7 @@ export async function exitDemoMode(): Promise<void> {
     "DELETE FROM team_members WHERE slack_user_id LIKE 'U0DEMO%'"
   );
 
-  await d.execute("DELETE FROM integrations WHERE provider IN ('slack','github','jira','linear')");
+  await d.execute("DELETE FROM integrations WHERE provider IN ('slack','github','gitlab','jira','linear')");
 
   await setConfig({
     demo_mode: false,
@@ -152,6 +156,7 @@ export async function exitDemoMode(): Promise<void> {
     privacy_consent_at: null,
     selected_slack_channels: [],
     selected_github_repos: [],
+    selected_gitlab_projects: [],
     memory_dir: "",
   } as any);
 }
@@ -171,6 +176,7 @@ interface NormalizedItem {
   content: string;
   actor_slack: string | null;
   actor_github: string | null;
+  actor_gitlab: string | null;
   bucket: string;
 }
 
@@ -208,6 +214,7 @@ function buildDemoEvidence(members: TeamMember[]): NormalizedItem[] {
       content: `${prefix}: ${m.text}`,
       actor_slack: author?.slack_user_id ?? null,
       actor_github: null,
+      actor_gitlab: null,
       bucket: `slack:${m.channel_name}`,
     });
   };
@@ -240,6 +247,7 @@ function buildDemoEvidence(members: TeamMember[]): NormalizedItem[] {
       content: `PR ${pr.repo}#${pr.number}: ${pr.title}\n\n${pr.body}`.trim(),
       actor_slack: null,
       actor_github: author?.github_handle ?? null,
+      actor_gitlab: null,
       bucket: `repo:${pr.repo}`,
     });
     for (const rv of pr.reviews) {
@@ -253,7 +261,40 @@ function buildDemoEvidence(members: TeamMember[]): NormalizedItem[] {
         content: `Review on ${pr.repo}#${pr.number} (${rv.state}): ${rv.body}`,
         actor_slack: null,
         actor_github: rvAuthor?.github_handle ?? null,
+        actor_gitlab: null,
         bucket: `repo:${pr.repo}`,
+      });
+    }
+  }
+
+  // ---- GitLab ----
+  for (const mr of DEMO_MRS) {
+    const author = lookupBySeed(mr.author) as any;
+    const mrUrl = `https://gitlab.com/${mr.project}/-/merge_requests/${mr.iid}`;
+    out.push({
+      source: "gitlab_mr",
+      source_id: `${mr.project}!${mr.iid}`,
+      source_url: mrUrl,
+      timestamp_at: hoursAgoToIso(mr.hours_ago),
+      content: `MR ${mr.project}!${mr.iid}: ${mr.title}\n\n${mr.body}`.trim(),
+      actor_slack: null,
+      actor_github: null,
+      actor_gitlab: author?.gitlab_username ?? null,
+      bucket: `project:${mr.project}`,
+    });
+    for (const rv of mr.reviews) {
+      const rvAuthor = lookupBySeed(rv.author) as any;
+      const contentBody = rv.body.trim() || "(approved)";
+      out.push({
+        source: "gitlab_review",
+        source_id: `${mr.project}!${mr.iid}:review:${rv.author}:${rv.hours_ago}`,
+        source_url: `${mrUrl}#note_${rv.hours_ago}`,
+        timestamp_at: hoursAgoToIso(rv.hours_ago),
+        content: `Review on ${mr.project}!${mr.iid} (${rv.state}): ${contentBody}`,
+        actor_slack: null,
+        actor_github: null,
+        actor_gitlab: rvAuthor?.gitlab_username ?? null,
+        bucket: `project:${mr.project}`,
       });
     }
   }
@@ -270,6 +311,7 @@ function buildDemoEvidence(members: TeamMember[]): NormalizedItem[] {
       content: `${issue.issue_key}: ${issue.summary} [${issue.status}]\n\n${issue.description}`.trim(),
       actor_slack: null,
       actor_github: assignee?.github_handle ?? null,
+      actor_gitlab: null,
       bucket: `jira:${issue.project_key}`,
     });
     for (const c of issue.comments) {
@@ -282,6 +324,7 @@ function buildDemoEvidence(members: TeamMember[]): NormalizedItem[] {
         content: `Comment on ${issue.issue_key}: ${c.body}`,
         actor_slack: cAuthor?.slack_user_id ?? null,
         actor_github: cAuthor?.github_handle ?? null,
+        actor_gitlab: null,
         bucket: `jira:${issue.project_key}`,
       });
     }
@@ -299,6 +342,7 @@ function buildDemoEvidence(members: TeamMember[]): NormalizedItem[] {
       content: `${issue.issue_id}: ${issue.title} [${issue.state}] [${issue.priority}]\n\n${issue.description}`.trim(),
       actor_slack: null,
       actor_github: assignee?.github_handle ?? null,
+      actor_gitlab: null,
       bucket: `linear:${issue.team_key}`,
     });
     for (const c of issue.comments) {
@@ -311,6 +355,7 @@ function buildDemoEvidence(members: TeamMember[]): NormalizedItem[] {
         content: `Comment on ${issue.issue_id}: ${c.body}`,
         actor_slack: cAuthor?.slack_user_id ?? null,
         actor_github: cAuthor?.github_handle ?? null,
+        actor_gitlab: null,
         bucket: `linear:${issue.team_key}`,
       });
     }
@@ -323,6 +368,12 @@ function resolveActor(it: NormalizedItem, members: TeamMember[]): TeamMember | n
   if (it.actor_github) {
     const m = members.find(
       (x) => (x.github_handle || "").toLowerCase() === it.actor_github!.toLowerCase()
+    );
+    if (m) return m;
+  }
+  if (it.actor_gitlab) {
+    const m = members.find(
+      (x) => (x.gitlab_username || "").toLowerCase() === it.actor_gitlab!.toLowerCase()
     );
     if (m) return m;
   }

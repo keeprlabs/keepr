@@ -26,11 +26,13 @@ export function inferEdges(evidence: EvidenceItem[]): GraphEdge[] {
 
   // Index evidence by source for fast lookup
   const prItems = evidence.filter((e) => e.source === "github_pr");
+  const mrItems = evidence.filter((e) => e.source === "gitlab_mr");
   const jiraIssueItems = evidence.filter((e) => e.source === "jira_issue");
   const linearIssueItems = evidence.filter((e) => e.source === "linear_issue");
 
   // Build lookup maps keyed by source_id
   const prBySourceId = new Map(prItems.map((e) => [e.source_id, e]));
+  const mrBySourceId = new Map(mrItems.map((e) => [e.source_id, e]));
   const jiraBySourceId = new Map(jiraIssueItems.map((e) => [e.source_id, e]));
   const linearBySourceId = new Map(linearIssueItems.map((e) => [e.source_id, e]));
 
@@ -47,7 +49,18 @@ export function inferEdges(evidence: EvidenceItem[]): GraphEdge[] {
       }
     }
 
-    // Rule 2: slack_message references a GitHub PR URL or #<number> → "discusses"
+    // Rule 1b: gitlab_review mentions an MR source_id → "reviews"
+    if (item.source === "gitlab_review") {
+      for (const [sourceId, mr] of mrBySourceId) {
+        if (mr.id === item.id) continue;
+        if (content.includes(sourceId)) {
+          add(item.id, mr.id, "reviews");
+        }
+      }
+    }
+
+    // Rule 2: slack_message references a GitHub PR URL / GitLab MR URL / #N
+    // or !N → "discusses"
     if (item.source === "slack_message") {
       // Match GitHub PR URLs: github.com/<owner>/<repo>/pull/<number>
       const prUrlMatches = content.matchAll(
@@ -57,14 +70,28 @@ export function inferEdges(evidence: EvidenceItem[]): GraphEdge[] {
         const prNumber = m[1];
         for (const pr of prItems) {
           if (pr.id === item.id) continue;
-          // source_id often contains the PR number
           if (pr.source_id === prNumber || pr.source_id.endsWith(`/${prNumber}`)) {
             add(item.id, pr.id, "discusses");
           }
         }
       }
 
-      // Match #123 style references
+      // Match GitLab MR URLs: <host>/<group>/.../<project>/-/merge_requests/<iid>
+      const mrUrlMatches = content.matchAll(
+        /\/([\w.-]+(?:\/[\w.-]+)+)\/-\/merge_requests\/(\d+)/g,
+      );
+      for (const m of mrUrlMatches) {
+        const path = m[1];
+        const iid = m[2];
+        for (const mr of mrItems) {
+          if (mr.id === item.id) continue;
+          if (mr.source_id === `${path}!${iid}` || mr.source_id.endsWith(`!${iid}`)) {
+            add(item.id, mr.id, "discusses");
+          }
+        }
+      }
+
+      // Match #123 style references (GitHub PR number)
       const hashMatches = content.matchAll(/#(\d+)/g);
       for (const m of hashMatches) {
         const num = m[1];
@@ -72,6 +99,18 @@ export function inferEdges(evidence: EvidenceItem[]): GraphEdge[] {
           if (pr.id === item.id) continue;
           if (pr.source_id === num || pr.source_id.endsWith(`/${num}`)) {
             add(item.id, pr.id, "discusses");
+          }
+        }
+      }
+
+      // Match !123 style references (GitLab MR iid)
+      const bangMatches = content.matchAll(/!(\d+)/g);
+      for (const m of bangMatches) {
+        const num = m[1];
+        for (const mr of mrItems) {
+          if (mr.id === item.id) continue;
+          if (mr.source_id.endsWith(`!${num}`)) {
+            add(item.id, mr.id, "discusses");
           }
         }
       }

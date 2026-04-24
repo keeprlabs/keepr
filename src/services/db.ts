@@ -95,6 +95,7 @@ export async function listMembers(): Promise<TeamMember[]> {
 export async function upsertMember(m: {
   display_name: string;
   github_handle?: string | null;
+  gitlab_username?: string | null;
   slack_user_id?: string | null;
   jira_username?: string | null;
   linear_username?: string | null;
@@ -104,14 +105,14 @@ export async function upsertMember(m: {
   const d = await db();
   if (m.id) {
     await d.execute(
-      "UPDATE team_members SET display_name=?, github_handle=?, slack_user_id=?, jira_username=?, linear_username=?, slug=? WHERE id=?",
-      [m.display_name, m.github_handle ?? null, m.slack_user_id ?? null, m.jira_username ?? null, m.linear_username ?? null, m.slug, m.id]
+      "UPDATE team_members SET display_name=?, github_handle=?, gitlab_username=?, slack_user_id=?, jira_username=?, linear_username=?, slug=? WHERE id=?",
+      [m.display_name, m.github_handle ?? null, m.gitlab_username ?? null, m.slack_user_id ?? null, m.jira_username ?? null, m.linear_username ?? null, m.slug, m.id]
     );
     return m.id;
   }
   const res = await d.execute(
-    "INSERT INTO team_members(display_name, github_handle, slack_user_id, jira_username, linear_username, slug) VALUES(?,?,?,?,?,?)",
-    [m.display_name, m.github_handle ?? null, m.slack_user_id ?? null, m.jira_username ?? null, m.linear_username ?? null, m.slug]
+    "INSERT INTO team_members(display_name, github_handle, gitlab_username, slack_user_id, jira_username, linear_username, slug) VALUES(?,?,?,?,?,?,?)",
+    [m.display_name, m.github_handle ?? null, m.gitlab_username ?? null, m.slack_user_id ?? null, m.jira_username ?? null, m.linear_username ?? null, m.slug]
   );
   return res.lastInsertId as number;
 }

@@ -20,6 +20,21 @@ interface GithubReview {
   body: string;
 }
 
+interface GitlabMr {
+  kind: "gitlab_mr";
+  project: string;
+  iid: number;
+  title: string;
+  body: string;
+}
+
+interface GitlabReview {
+  kind: "gitlab_review";
+  mrRef: string;
+  state: string;
+  body: string;
+}
+
 interface SlackMessage {
   kind: "slack_message";
   channel: string;
@@ -66,6 +81,8 @@ interface Fallback {
 export type ParsedEvidence =
   | GithubPr
   | GithubReview
+  | GitlabMr
+  | GitlabReview
   | SlackMessage
   | JiraIssue
   | JiraComment
@@ -104,6 +121,38 @@ export function parseEvidence(
           return {
             kind: "github_review",
             prRef: m[1],
+            state: m[2],
+            body: m[3],
+          };
+        }
+        break;
+      }
+      case "gitlab_mr": {
+        // "MR group/project!123: Title\n\nBody"  (GitLab uses ! for MRs)
+        // path_with_namespace may contain subgroups (a/b/c) so [\w./-]+ covers it.
+        const m = content.match(
+          /^MR\s+([\w./-]+)!(\d+):\s+(.+?)(?:\n\n([\s\S]*))?$/
+        );
+        if (m) {
+          return {
+            kind: "gitlab_mr",
+            project: m[1],
+            iid: parseInt(m[2], 10),
+            title: m[3],
+            body: m[4] || "",
+          };
+        }
+        break;
+      }
+      case "gitlab_review": {
+        // "Review on group/project!123 (APPROVED): Body"
+        const m = content.match(
+          /^Review on\s+([\w./-]+![\d]+)\s+\((\w+)\):\s+([\s\S]*)$/
+        );
+        if (m) {
+          return {
+            kind: "gitlab_review",
+            mrRef: m[1],
             state: m[2],
             body: m[3],
           };

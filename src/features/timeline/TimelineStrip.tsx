@@ -12,6 +12,8 @@ import { TimelineDayDetail } from "./TimelineDayDetail";
 const SOURCE_COLORS: Record<string, string> = {
   github_pr: "#2563eb",     // blue — PRs opened/merged
   github_review: "#7c3aed", // purple — reviews
+  gitlab_mr: "#fc6d26",     // GitLab orange — MRs
+  gitlab_review: "#e24329", // GitLab red — reviews/approvals
   slack_message: "#d97706",  // amber — Slack messages
   jira_issue: "#0891b2",    // teal — Jira issues
   jira_comment: "#0891b2",

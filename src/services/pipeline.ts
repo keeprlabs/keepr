@@ -31,6 +31,10 @@ import {
 } from "./db";
 import { fetchRepoActivity, type FetchedPR } from "./github";
 import {
+  fetchProjectActivity as fetchGitLabProjectActivity,
+  type FetchedGitLabMR,
+} from "./gitlab";
+import {
   fetchChannelHistory,
   authTest as slackAuthTest,
   type FetchedMessage,
@@ -66,9 +70,10 @@ export interface NormalizedItem {
   content: string;
   actor_slack: string | null;
   actor_github: string | null;
+  actor_gitlab: string | null;
   actor_jira: string | null;
   actor_linear: string | null;
-  /** pipeline grouping: repo slug, "slack:<channel>", "jira:<project>", "linear:<team>" */
+  /** pipeline grouping: "repo:<path>", "project:<path>", "slack:<channel>", "jira:<project>", "linear:<team>" */
   bucket: string;
 }
 
@@ -97,6 +102,7 @@ function normalizeGithub(prs: FetchedPR[], repoFull: string): NormalizedItem[] {
       content: `PR ${pr.source_id}: ${pr.title}\n\n${body}`.trim(),
       actor_slack: null,
       actor_github: pr.user || null,
+      actor_gitlab: null,
       actor_jira: null,
       actor_linear: null,
       bucket: `repo:${repoFull}`,
@@ -112,9 +118,53 @@ function normalizeGithub(prs: FetchedPR[], repoFull: string): NormalizedItem[] {
         content: `Review on ${pr.source_id} (${rv.state}): ${safeSlice(rvBody, 0, 600)}`,
         actor_slack: null,
         actor_github: rv.user || null,
+        actor_gitlab: null,
         actor_jira: null,
         actor_linear: null,
         bucket: `repo:${repoFull}`,
+      });
+    }
+  }
+  return out;
+}
+
+function normalizeGitlab(
+  mrs: FetchedGitLabMR[],
+  pathWithNamespace: string
+): NormalizedItem[] {
+  const out: NormalizedItem[] = [];
+  for (const mr of mrs) {
+    const body = mr.body ? safeSlice(mr.body, 0, 1200) : "";
+    out.push({
+      source: "gitlab_mr",
+      source_id: mr.source_id,
+      source_url: mr.url,
+      timestamp_at: mr.updated_at,
+      content: `MR ${mr.source_id}: ${mr.title}\n\n${body}`.trim(),
+      actor_slack: null,
+      actor_github: null,
+      actor_gitlab: mr.user || null,
+      actor_jira: null,
+      actor_linear: null,
+      bucket: `project:${pathWithNamespace}`,
+    });
+    for (const rv of mr.reviews) {
+      const rvBody = (rv.body || "").trim();
+      // Approvals emit with null body — still surface them as structured
+      // evidence (state=APPROVED is itself informative).
+      const contentBody = rvBody ? safeSlice(rvBody, 0, 600) : "(approved)";
+      out.push({
+        source: "gitlab_review",
+        source_id: rv.source_id,
+        source_url: rv.url,
+        timestamp_at: rv.submitted_at,
+        content: `Review on ${mr.source_id} (${rv.state}): ${contentBody}`,
+        actor_slack: null,
+        actor_github: null,
+        actor_gitlab: rv.user || null,
+        actor_jira: null,
+        actor_linear: null,
+        bucket: `project:${pathWithNamespace}`,
       });
     }
   }
@@ -132,6 +182,7 @@ function normalizeSlack(msgs: FetchedMessage[]): NormalizedItem[] {
       content: `#${m.channel_name}: ${m.text}`,
       actor_slack: m.user,
       actor_github: null,
+      actor_gitlab: null,
       actor_jira: null,
       actor_linear: null,
       bucket: `slack:${m.channel_name}`,
@@ -145,6 +196,7 @@ function normalizeSlack(msgs: FetchedMessage[]): NormalizedItem[] {
         content: `#${m.channel_name} (thread): ${r.text}`,
         actor_slack: r.user,
         actor_github: null,
+        actor_gitlab: null,
         actor_jira: null,
         actor_linear: null,
         bucket: `slack:${m.channel_name}`,
@@ -166,6 +218,7 @@ function normalizeJira(issues: FetchedJiraIssue[], projectKey: string): Normaliz
       content: `${issue.key}: ${issue.summary} [${issue.status}]\n\n${body}`.trim(),
       actor_slack: null,
       actor_github: null,
+      actor_gitlab: null,
       actor_jira: issue.assignee || issue.reporter || null,
       actor_linear: null,
       bucket: `jira:${projectKey}`,
@@ -179,6 +232,7 @@ function normalizeJira(issues: FetchedJiraIssue[], projectKey: string): Normaliz
         content: `Comment on ${issue.key} by ${c.author || "someone"}: ${safeSlice(c.body, 0, 600)}`,
         actor_slack: null,
         actor_github: null,
+        actor_gitlab: null,
         actor_jira: c.author || null,
         actor_linear: null,
         bucket: `jira:${projectKey}`,
@@ -200,6 +254,7 @@ function normalizeLinear(issues: FetchedLinearIssue[], teamKey: string): Normali
       content: `${issue.identifier}: ${issue.title} [${issue.state}]\n\n${body}`.trim(),
       actor_slack: null,
       actor_github: null,
+      actor_gitlab: null,
       actor_jira: null,
       actor_linear: issue.assignee || issue.creator || null,
       bucket: `linear:${teamKey}`,
@@ -213,6 +268,7 @@ function normalizeLinear(issues: FetchedLinearIssue[], teamKey: string): Normali
         content: `Comment on ${issue.identifier} by ${c.author || "someone"}: ${safeSlice(c.body, 0, 600)}`,
         actor_slack: null,
         actor_github: null,
+        actor_gitlab: null,
         actor_jira: null,
         actor_linear: c.author || null,
         bucket: `linear:${teamKey}`,
@@ -295,6 +351,12 @@ function resolveActor(
   if (item.actor_github) {
     const m = members.find(
       (x) => (x.github_handle || "").toLowerCase() === item.actor_github!.toLowerCase()
+    );
+    if (m) return m;
+  }
+  if (item.actor_gitlab) {
+    const m = members.find(
+      (x) => (x.gitlab_username || "").toLowerCase() === item.actor_gitlab!.toLowerCase()
     );
     if (m) return m;
   }
@@ -401,7 +463,7 @@ type SourceResult =
       fixAction?: FixAction;
     };
 
-const ALL_KINDS: IntegrationKind[] = ["github", "slack", "jira", "linear"];
+const ALL_KINDS: IntegrationKind[] = ["github", "gitlab", "slack", "jira", "linear"];
 
 function aggregateByKind(
   results: SourceResult[],
@@ -562,6 +624,37 @@ export async function runWorkflow(opts: RunOptions): Promise<PulseOutcome> {
       }
     }
 
+    // GitLab
+    for (const project of cfg.selected_gitlab_projects || []) {
+      throwIfAborted(opts.signal);
+      progress("fetch", `GitLab: ${project.path_with_namespace}`);
+      try {
+        const mrs = await fetchGitLabProjectActivity(
+          project.id,
+          project.path_with_namespace,
+          timeRange.start,
+          fetchOpts
+        );
+        progress(
+          "fetch",
+          `GitLab: ${project.path_with_namespace} → ${mrs.length} MRs`
+        );
+        allItems.push(...normalizeGitlab(mrs, project.path_with_namespace));
+        perSource.push(
+          mrs.length === 0
+            ? { kind: "gitlab", status: "ok_empty" }
+            : { kind: "gitlab", status: "ok_data", itemCount: mrs.length }
+        );
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        logWarn(
+          `gitlab fetch failed (${project.path_with_namespace}): ${errMessage(err)}`
+        ).catch(() => {});
+        const c = classifyError("gitlab", err);
+        perSource.push({ kind: "gitlab", status: "error", ...c });
+      }
+    }
+
     // Slack
     let teamDomain = "app";
     try {
@@ -656,15 +749,21 @@ export async function runWorkflow(opts: RunOptions): Promise<PulseOutcome> {
     // outcome — keeps throwing so the caller's existing error path fires.
     const kindCounts: Record<IntegrationKind, number> = {
       github: cfg.selected_github_repos.length,
+      gitlab: (cfg.selected_gitlab_projects || []).length,
       slack: cfg.selected_slack_channels.length,
       jira: (cfg.selected_jira_projects || []).length,
       linear: (cfg.selected_linear_teams || []).length,
     };
     const hasAnySources =
-      kindCounts.github + kindCounts.slack + kindCounts.jira + kindCounts.linear > 0;
+      kindCounts.github +
+        kindCounts.gitlab +
+        kindCounts.slack +
+        kindCounts.jira +
+        kindCounts.linear >
+      0;
     if (!hasAnySources) {
       throw new Error(
-        "No data sources selected. Open Settings and connect at least one Slack channel, GitHub repo, Jira project, or Linear team."
+        "No data sources selected. Open Settings and connect at least one Slack channel, GitHub repo, GitLab project, Jira project, or Linear team."
       );
     }
 
@@ -735,11 +834,13 @@ export async function runWorkflow(opts: RunOptions): Promise<PulseOutcome> {
     } else {
       // Log a diagnostic so the user can fix their mappings.
       const seenGh = new Set<string>();
+      const seenGl = new Set<string>();
       const seenSlack = new Set<string>();
       const seenJira = new Set<string>();
       const seenLinear = new Set<string>();
       for (const it of pruned) {
         if (it.actor_github) seenGh.add(it.actor_github);
+        if (it.actor_gitlab) seenGl.add(it.actor_gitlab);
         if (it.actor_slack) seenSlack.add(it.actor_slack);
         if (it.actor_jira) seenJira.add(it.actor_jira);
         if (it.actor_linear) seenLinear.add(it.actor_linear);
@@ -747,6 +848,9 @@ export async function runWorkflow(opts: RunOptions): Promise<PulseOutcome> {
       const configuredGh = members
         .filter((m) => m.github_handle)
         .map((m) => m.github_handle!);
+      const configuredGl = members
+        .filter((m) => m.gitlab_username)
+        .map((m) => m.gitlab_username!);
       const configuredSlack = members
         .filter((m) => m.slack_user_id)
         .map((m) => m.slack_user_id!);
@@ -761,6 +865,11 @@ export async function runWorkflow(opts: RunOptions): Promise<PulseOutcome> {
       if (seenGh.size || configuredGh.length) {
         diagnosticLines.push(
           `GitHub in data: ${[...seenGh].join(", ") || "(none)"} | configured: ${configuredGh.join(", ") || "(none)"}`
+        );
+      }
+      if (seenGl.size || configuredGl.length) {
+        diagnosticLines.push(
+          `GitLab in data: ${[...seenGl].join(", ") || "(none)"} | configured: ${configuredGl.join(", ") || "(none)"}`
         );
       }
       if (seenSlack.size || configuredSlack.length) {

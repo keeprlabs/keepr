@@ -12,6 +12,7 @@ import { DEFAULT_CONFIG } from "../../lib/types";
 
 const listPublicChannels = vi.fn();
 const listUserRepos = vi.fn();
+const listUserProjects = vi.fn();
 
 vi.mock("../../services/slack", () => ({
   listPublicChannels: (...a: unknown[]) => listPublicChannels(...a),
@@ -19,6 +20,10 @@ vi.mock("../../services/slack", () => ({
 
 vi.mock("../../services/github", () => ({
   listUserRepos: (...a: unknown[]) => listUserRepos(...a),
+}));
+
+vi.mock("../../services/gitlab", () => ({
+  listUserProjects: (...a: unknown[]) => listUserProjects(...a),
 }));
 
 vi.mock("../../services/jira", () => ({}));
@@ -39,6 +44,7 @@ vi.mock("../../services/secrets", () => ({
   SECRET_KEYS: {
     slackBot: "slack_bot",
     github: "github",
+    gitlab: "gitlab",
     jiraEmail: "jira_email",
     jiraToken: "jira_token",
     linear: "linear",
@@ -49,7 +55,7 @@ vi.mock("../../services/secrets", () => ({
   },
   // Provide non-empty tokens so the auto-load gate passes the token check.
   getSecret: vi.fn(async (k: string) =>
-    k === "slack_bot" || k === "github" ? "dummy-token" : ""
+    k === "slack_bot" || k === "github" || k === "gitlab" ? "dummy-token" : ""
   ),
   setSecret: vi.fn(async () => {}),
 }));
@@ -85,6 +91,7 @@ vi.mock("@tauri-apps/plugin-shell", () => ({
 
 vi.mock("../../components/primitives/SourceBadge", () => ({
   GitHubIcon: () => null,
+  GitLabIcon: () => null,
   SlackIcon: () => null,
   JiraIcon: () => null,
   LinearIcon: () => null,
@@ -98,8 +105,10 @@ beforeEach(() => {
   fakeConfig = { ...DEFAULT_CONFIG };
   listPublicChannels.mockReset();
   listUserRepos.mockReset();
+  listUserProjects.mockReset();
   listPublicChannels.mockResolvedValue([]);
   listUserRepos.mockResolvedValue([]);
+  listUserProjects.mockResolvedValue([]);
 });
 
 // ---- Tests ---------------------------------------------------------------
@@ -115,6 +124,9 @@ describe("Settings — auto-load gating", () => {
     });
     await waitFor(() => {
       expect(listUserRepos).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(listUserProjects).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -147,5 +159,23 @@ describe("Settings — auto-load gating", () => {
     // user clicks (the Reload relabel triggers AFTER a successful fetch).
     await utils!.findByText(/Load public channels/);
     await utils!.findByText(/Load my repos/);
+  });
+
+  it("#3 REGRESSION mount with pre-selected GitLab projects — listUserProjects NOT called", async () => {
+    fakeConfig = {
+      ...DEFAULT_CONFIG,
+      selected_gitlab_projects: [
+        { id: 1, path_with_namespace: "acme/platform" },
+      ],
+    };
+
+    await act(async () => {
+      render(<Settings />);
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(listUserProjects).not.toHaveBeenCalled();
   });
 });

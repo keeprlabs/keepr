@@ -10,7 +10,7 @@
 
 import type { SourceErrorKind } from "./sourceDiagnostic";
 
-export type IntegrationKind = "slack" | "github" | "jira" | "linear";
+export type IntegrationKind = "slack" | "github" | "gitlab" | "jira" | "linear";
 
 /** What the [Fix in …] button does, if anything. */
 export type FixAction = "settings" | "invite_bot" | "renew_token";

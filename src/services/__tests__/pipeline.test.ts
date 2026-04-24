@@ -35,6 +35,11 @@ vi.mock("../github", () => ({
   fetchRepoActivity: (...a: unknown[]) => fetchRepoActivity(...a),
 }));
 
+const fetchGitLabProjectActivity = vi.fn();
+vi.mock("../gitlab", () => ({
+  fetchProjectActivity: (...a: unknown[]) => fetchGitLabProjectActivity(...a),
+}));
+
 const slackAuthTest = vi.fn(async () => ({ team: "t", user: "u", team_id: "T1" }));
 const fetchChannelHistory = vi.fn();
 vi.mock("../slack", () => ({
@@ -77,6 +82,7 @@ import { runWorkflow } from "../pipeline";
 beforeEach(() => {
   fakeConfig = { ...DEFAULT_CONFIG };
   fetchRepoActivity.mockReset();
+  fetchGitLabProjectActivity.mockReset();
   fetchChannelHistory.mockReset();
   fetchProjectActivity.mockReset();
   fetchTeamActivity.mockReset();
@@ -91,6 +97,7 @@ afterEach(() => {
 
 function configWith(opts: {
   github?: number;
+  gitlab?: number;
   slack?: number;
   jira?: number;
   linear?: number;
@@ -100,6 +107,10 @@ function configWith(opts: {
     selected_github_repos: Array.from({ length: opts.github ?? 0 }, (_, i) => ({
       owner: "acme",
       repo: `repo${i}`,
+    })),
+    selected_gitlab_projects: Array.from({ length: opts.gitlab ?? 0 }, (_, i) => ({
+      id: i + 1,
+      path_with_namespace: `acme/proj${i}`,
     })),
     selected_slack_channels: Array.from({ length: opts.slack ?? 0 }, (_, i) => ({
       id: `C${i}`,
@@ -343,5 +354,56 @@ describe("runWorkflow — outcome shape", () => {
     const outcome = await runWorkflow({ workflow: "team_pulse", daysBack: 7 });
 
     expect(outcome.sources[0].sourceCount).toBe(5);
+  });
+
+  it("#13 GitLab-only configured + empty fetch → kind: 'empty', gitlab in sources", async () => {
+    configWith({ gitlab: 2 });
+    fetchGitLabProjectActivity.mockResolvedValue([]);
+
+    const outcome = await runWorkflow({ workflow: "team_pulse", daysBack: 7 });
+
+    expect(outcome.kind).toBe("empty");
+    expect(outcome.sources).toHaveLength(1);
+    expect(outcome.sources[0].kind).toBe("gitlab");
+    expect(outcome.sources[0].status).toBe("ok_empty");
+    expect(outcome.sources[0].sourceCount).toBe(2);
+    expect(fetchGitLabProjectActivity).toHaveBeenCalledTimes(2);
+  });
+
+  it("#14 GitLab errors are classified via gitlab matchers and don't kill other sources", async () => {
+    configWith({ gitlab: 1, github: 1 });
+    fetchGitLabProjectActivity.mockRejectedValue(
+      new Error("GitLab /projects/1/merge_requests: 401 Unauthorized")
+    );
+    fetchRepoActivity.mockResolvedValue([]);
+
+    const outcome = await runWorkflow({ workflow: "team_pulse", daysBack: 7 });
+
+    expect(outcome.kind).toBe("partial_failure");
+    const gl = outcome.sources.find((s) => s.kind === "gitlab");
+    expect(gl?.status).toBe("error");
+    if (gl?.status === "error") {
+      expect(gl.errorKind).toBe("unauthorized");
+      expect(gl.fixAction).toBe("renew_token");
+    }
+    // GitHub ok_empty still surfaced.
+    expect(outcome.sources.find((s) => s.kind === "github")?.status).toBe(
+      "ok_empty"
+    );
+  });
+
+  it("#15 GitLab fetch is invoked with the numeric project id, path, and time range", async () => {
+    configWith({ gitlab: 1 });
+    fetchGitLabProjectActivity.mockResolvedValue([]);
+
+    await runWorkflow({ workflow: "team_pulse", daysBack: 7 });
+
+    const [projectId, path, sinceIso] =
+      fetchGitLabProjectActivity.mock.calls[0];
+    expect(projectId).toBe(1);
+    expect(path).toBe("acme/proj0");
+    // sinceIso should be an ISO timestamp (7 days ago) — just check shape.
+    expect(typeof sinceIso).toBe("string");
+    expect(sinceIso).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });

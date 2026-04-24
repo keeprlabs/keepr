@@ -17,11 +17,12 @@ import { defaultMemoryDir } from "../services/fsio";
 import { slugify } from "../services/memory";
 import * as slack from "../services/slack";
 import * as github from "../services/github";
+import * as gitlab from "../services/gitlab";
 import * as jira from "../services/jira";
 import * as linear from "../services/linear";
 import type { AppConfig, FeatureFlags, TeamMember } from "../lib/types";
 import { DEFAULT_CONFIG, DEFAULT_FEATURE_FLAGS } from "../lib/types";
-import { GitHubIcon, SlackIcon, JiraIcon, LinearIcon } from "../components/primitives/SourceBadge";
+import { GitHubIcon, GitLabIcon, SlackIcon, JiraIcon, LinearIcon } from "../components/primitives/SourceBadge";
 import { ChipGrid, SourceChip } from "../components/onboarding/primitives";
 import type { IntegrationKind } from "../services/pulseOutcome";
 
@@ -36,9 +37,12 @@ export function Settings({
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [slackChannels, setSlackChannels] = useState<slack.SlackChannel[]>([]);
   const [ghRepos, setGhRepos] = useState<Array<{ full_name: string; owner: { login: string } }>>([]);
+  const [glProjects, setGlProjects] = useState<gitlab.GitLabProjectRemote[]>([]);
   const [llmKey, setLlmKey] = useState("");
   const [slackToken, setSlackToken] = useState("");
   const [ghToken, setGhToken] = useState("");
+  const [glToken, setGlToken] = useState("");
+  const [glInstanceUrl, setGlInstanceUrl] = useState("");
   const [jiraEmail, setJiraEmail] = useState("");
   const [jiraToken, setJiraToken] = useState("");
   const [jiraUrl, setJiraUrl] = useState("");
@@ -67,6 +71,8 @@ export function Settings({
     setLlmSaveStatus("idle");
     setSlackToken((await getSecret(SECRET_KEYS.slackBot)) || "");
     setGhToken((await getSecret(SECRET_KEYS.github)) || "");
+    setGlToken((await getSecret(SECRET_KEYS.gitlab)) || "");
+    setGlInstanceUrl(freshCfg.gitlab_instance_url || "https://gitlab.com");
     setJiraEmail((await getSecret(SECRET_KEYS.jiraEmail)) || "");
     setJiraToken((await getSecret(SECRET_KEYS.jiraToken)) || "");
     setJiraUrl(freshCfg.jira_cloud_url || "");
@@ -111,6 +117,7 @@ export function Settings({
   // token; deps cover every input the effect actually reads.
   const slackAutoLoadedRef = useRef(false);
   const ghAutoLoadedRef = useRef(false);
+  const glAutoLoadedRef = useRef(false);
   useEffect(() => {
     if (
       !slackAutoLoadedRef.current &&
@@ -130,13 +137,25 @@ export function Settings({
       ghAutoLoadedRef.current = true;
       void loadGhRepos();
     }
+    if (
+      !glAutoLoadedRef.current &&
+      (cfg.selected_gitlab_projects || []).length === 0 &&
+      glProjects.length === 0 &&
+      glToken.trim()
+    ) {
+      glAutoLoadedRef.current = true;
+      void loadGlProjects();
+    }
   }, [
     cfg.selected_slack_channels.length,
     cfg.selected_github_repos.length,
+    (cfg.selected_gitlab_projects || []).length,
     slackChannels.length,
     ghRepos.length,
+    glProjects.length,
     slackToken,
     ghToken,
+    glToken,
   ]);
 
   const pickMemoryDir = async () => {
@@ -160,6 +179,14 @@ export function Settings({
       setGhRepos((await github.listUserRepos()) as any);
     } catch (e: any) {
       alert(`GitHub error: ${e.message}`);
+    }
+  };
+
+  const loadGlProjects = async () => {
+    try {
+      setGlProjects(await gitlab.listUserProjects());
+    } catch (e: any) {
+      alert(`GitLab error: ${e.message}`);
     }
   };
 
@@ -430,6 +457,71 @@ export function Settings({
           </ChipGrid>
         </Panel>
 
+        <Panel title="GitLab">
+          <Field
+            label="Instance URL"
+          >
+            <div className="flex gap-2">
+              <input
+                className={inputCls}
+                value={glInstanceUrl}
+                placeholder="https://gitlab.com"
+                onChange={(e) => setGlInstanceUrl(e.target.value)}
+              />
+              <SaveButton onSave={async () => {
+                const normalized = (glInstanceUrl || "https://gitlab.com").replace(/\/+$/, "");
+                await setConfig({ gitlab_instance_url: normalized });
+                setCfg({ ...cfg, gitlab_instance_url: normalized });
+              }} />
+            </div>
+          </Field>
+          <Field label="Personal access token">
+            <div className="flex gap-2">
+              <input
+                type="password"
+                className={inputCls}
+                value={glToken}
+                placeholder="glpat-…"
+                onChange={(e) => setGlToken(e.target.value)}
+              />
+              <SaveButton onSave={async () => {
+                await setSecret(SECRET_KEYS.gitlab, glToken);
+                if (glToken.trim()) {
+                  await upsertIntegration("gitlab", {});
+                }
+              }} />
+              <Ghost onClick={() => openExternal(
+                `${(glInstanceUrl || "https://gitlab.com").replace(/\/+$/, "")}/-/user_settings/personal_access_tokens?name=Keepr&scopes=read_api,read_user,read_repository`
+              )}>Get token</Ghost>
+            </div>
+          </Field>
+          <div className="mb-3">
+            <Ghost onClick={loadGlProjects}>
+              {glProjects.length > 0 ? "Reload" : "Load my projects"}
+            </Ghost>
+          </div>
+          <ChipGrid label="GitLab projects to read">
+            {glProjects.map((p) => {
+              const on = (cfg.selected_gitlab_projects || []).some((x) => x.id === p.id);
+              return (
+                <SourceChip
+                  key={p.id}
+                  checked={on}
+                  label={p.path_with_namespace}
+                  onClick={async () => {
+                    const current = cfg.selected_gitlab_projects || [];
+                    const next = on
+                      ? current.filter((x) => x.id !== p.id)
+                      : [...current, { id: p.id, path_with_namespace: p.path_with_namespace }];
+                    await setConfig({ selected_gitlab_projects: next });
+                    setCfg({ ...cfg, selected_gitlab_projects: next });
+                  }}
+                />
+              );
+            })}
+          </ChipGrid>
+        </Panel>
+
         <Panel title="Jira">
           <Field label="Atlassian Cloud URL">
             <div className="flex gap-2">
@@ -543,7 +635,7 @@ export function Settings({
           <div className="flex flex-col gap-2">
             {members.map((m) => (
               <div key={m.id} className="flex flex-col gap-1.5 rounded-md border border-hairline p-3 mb-2">
-                <div className="grid grid-cols-[1fr_1fr] gap-2">
+                <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
                   <input
                     className={inputCls}
                     value={m.display_name}
@@ -555,6 +647,12 @@ export function Settings({
                     placeholder="GitHub handle"
                     value={m.github_handle || ""}
                     onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, github_handle: e.target.value } : x))}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder="GitLab username"
+                    value={m.gitlab_username || ""}
+                    onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, gitlab_username: e.target.value } : x))}
                   />
                 </div>
                 <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
@@ -618,6 +716,7 @@ export function Settings({
                       id: m.id,
                       display_name: m.display_name,
                       github_handle: m.github_handle,
+                      gitlab_username: m.gitlab_username,
                       slack_user_id: m.slack_user_id,
                       jira_username: m.jira_username,
                       linear_username: m.linear_username,
@@ -715,6 +814,7 @@ const inputCls =
 const PANEL_ICONS: Record<string, React.ReactNode> = {
   Slack: <SlackIcon size={16} />,
   GitHub: <GitHubIcon size={16} />,
+  GitLab: <GitLabIcon size={16} />,
   Jira: <JiraIcon size={16} />,
   Linear: <LinearIcon size={16} />,
   Model: (

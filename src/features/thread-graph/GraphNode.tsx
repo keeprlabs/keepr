@@ -5,6 +5,8 @@ import type { EvidenceSource } from "../../lib/types";
 export const SOURCE_COLORS: Record<EvidenceSource, string> = {
   github_pr: "#24292f",
   github_review: "#7c3aed",
+  gitlab_mr: "#fc6d26",
+  gitlab_review: "#e24329",
   slack_message: "#4A154B",
   jira_issue: "#2684ff",
   jira_comment: "#0052cc",
@@ -16,6 +18,8 @@ export const SOURCE_COLORS: Record<EvidenceSource, string> = {
 const SOURCE_BG: Record<EvidenceSource, string> = {
   github_pr: "#f6f8fa",
   github_review: "#f5f3ff",
+  gitlab_mr: "#fff4ec",
+  gitlab_review: "#fdecea",
   slack_message: "#fff8f6",
   jira_issue: "#e9f2ff",
   jira_comment: "#e9f2ff",
@@ -156,6 +160,16 @@ function sourceIcon(source: EvidenceSource, size: number): React.ReactNode {
       </svg>
     );
   }
+  if (source.startsWith("gitlab")) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 380 380">
+        <path fill="#e24329" d="M265.264 174.372l-.213-.558-21.199-55.309a5.67 5.67 0 0 0-2.177-2.627 5.67 5.67 0 0 0-3.323-.87 5.67 5.67 0 0 0-3.208 1.218 5.67 5.67 0 0 0-1.875 2.853l-14.313 43.807h-57.91l-14.313-43.807a5.67 5.67 0 0 0-1.875-2.853 5.67 5.67 0 0 0-3.208-1.218 5.67 5.67 0 0 0-3.323.87 5.67 5.67 0 0 0-2.177 2.627l-21.199 55.312-.213.555c-6.282 16.385-.929 34.908 13.059 45.488l.076.056.187.141 32.291 24.174 15.972 12.09 9.719 7.349a6.57 6.57 0 0 0 7.92 0l9.72-7.349 15.968-12.09 32.481-24.315.086-.066c13.978-10.58 19.327-29.096 13.049-45.478z"/>
+        <path fill="#fc6d26" d="M265.264 174.372l-.213-.558c-10.517 2.16-20.204 6.61-28.498 12.816-.135.098-25.205 19.058-46.552 35.197 15.85 11.985 29.648 22.404 29.648 22.404l32.481-24.315.086-.066c13.978-10.58 19.327-29.096 13.048-45.478z"/>
+        <path fill="#fca326" d="M160.35 244.231l15.972 12.09 9.719 7.349a6.57 6.57 0 0 0 7.92 0l9.72-7.349 15.968-12.09s-13.798-10.419-29.648-22.404c-15.853 11.985-29.651 22.404-29.651 22.404z"/>
+        <path fill="#fc6d26" d="M143.446 186.63c-8.291-6.203-17.975-10.655-28.495-12.813l-.214.555c-6.282 16.385-.929 34.908 13.059 45.488l.076.056.187.141 32.291 24.174s13.798-10.419 29.651-22.404c-21.347-16.139-46.42-35.098-46.555-35.197z"/>
+      </svg>
+    );
+  }
   if (source.startsWith("slack")) {
     return (
       <svg width={size} height={size} viewBox="0 0 127 127" fill="none">
@@ -196,6 +210,14 @@ export function nodeLabel(source: EvidenceSource, content: string): string {
   }
   if (source === "github_review") {
     const m = content.match(/^Review on [\w/.-]+(#\d+)/);
+    if (m) return `Review ${m[1]}`;
+  }
+  if (source === "gitlab_mr") {
+    const m = content.match(/^MR [\w/.-]+(!\d+):\s*(.+)/);
+    if (m) return `${m[1]} ${m[2].slice(0, 30)}`;
+  }
+  if (source === "gitlab_review") {
+    const m = content.match(/^Review on [\w/.-]+(!\d+)/);
     if (m) return `Review ${m[1]}`;
   }
   if (source === "slack_message") {

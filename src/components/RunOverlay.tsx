@@ -53,6 +53,7 @@ const MAX_WINDOW_DAYS = 90;
 const KIND_LABELS: Record<IntegrationKind, { subject: string; plural: string }> = {
   slack: { subject: "Slack", plural: "channels" },
   github: { subject: "GitHub", plural: "repos" },
+  gitlab: { subject: "GitLab", plural: "projects" },
   jira: { subject: "Jira", plural: "projects" },
   linear: { subject: "Linear", plural: "teams" },
 };

@@ -41,6 +41,10 @@ import type { AppConfig } from "../../lib/types";
 import { getConfig, setConfig } from "../../services/db";
 import { listPublicChannels, type SlackChannel } from "../../services/slack";
 import { listUserRepos } from "../../services/github";
+import {
+  listUserProjects as listGitlabUserProjects,
+  type GitLabProjectRemote,
+} from "../../services/gitlab";
 import { listProjects, type JiraProjectRemote } from "../../services/jira";
 import { listTeams, type LinearTeamRemote } from "../../services/linear";
 
@@ -48,7 +52,7 @@ import { listTeams, type LinearTeamRemote } from "../../services/linear";
 // Public types
 // ---------------------------------------------------------------------------
 
-export type IntegrationKind = "slack" | "github" | "jira" | "linear";
+export type IntegrationKind = "slack" | "github" | "gitlab" | "jira" | "linear";
 
 export type ScopePickerState =
   | { kind: "idle" }
@@ -143,6 +147,27 @@ const ADAPTERS: Record<IntegrationKind, Adapter> = {
       new Set(
         ((val as AppConfig["selected_github_repos"]) || []).map(
           (r) => `${r.owner}/${r.repo}`
+        )
+      ),
+  },
+  gitlab: {
+    fetcher: () => listGitlabUserProjects(),
+    identity: (p: GitLabProjectRemote) => p.path_with_namespace,
+    label: (p: GitLabProjectRemote) => p.path_with_namespace,
+    // listUserProjects orders by last_activity_at desc — earliest = most
+    // recently touched = highest rank (same shape as github).
+    rank: (_p, index) => -index,
+    excludeFromDefaults: () => false,
+    configKey: "selected_gitlab_projects",
+    toConfigShape: (items) =>
+      items.map((it) => {
+        const p = it.raw as GitLabProjectRemote;
+        return { id: p.id, path_with_namespace: p.path_with_namespace };
+      }) as AppConfig["selected_gitlab_projects"],
+    fromConfigShape: (val) =>
+      new Set(
+        ((val as AppConfig["selected_gitlab_projects"]) || []).map(
+          (p) => p.path_with_namespace
         )
       ),
   },

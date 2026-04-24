@@ -9,6 +9,7 @@ export interface DemoMember {
   seed_id: string;
   display_name: string;
   github_handle: string;
+  gitlab_username: string;
   slack_user_id: string;
   slug: string;
   // Narrative colour — the fixtures are shaped around these so the brief
@@ -21,6 +22,7 @@ export const DEMO_MEMBERS: DemoMember[] = [
     seed_id: "priya",
     display_name: "Priya Raman",
     github_handle: "priyar",
+    gitlab_username: "priyar",
     slack_user_id: "U0DEMO001",
     slug: "priya-raman",
     persona: "steady senior; quietly unblocks the payments migration",
@@ -29,6 +31,7 @@ export const DEMO_MEMBERS: DemoMember[] = [
     seed_id: "marcus",
     display_name: "Marcus Chen",
     github_handle: "mchen",
+    gitlab_username: "mchen",
     slack_user_id: "U0DEMO002",
     slug: "marcus-chen",
     persona: "stretched thin; on-call + shipping the rate-limiter",
@@ -37,6 +40,7 @@ export const DEMO_MEMBERS: DemoMember[] = [
     seed_id: "avery",
     display_name: "Avery Johansson",
     github_handle: "averyj",
+    gitlab_username: "averyj",
     slack_user_id: "U0DEMO003",
     slug: "avery-johansson",
     persona: "invisible work: reviews everyone's PRs carefully, no big ship",
@@ -45,6 +49,7 @@ export const DEMO_MEMBERS: DemoMember[] = [
     seed_id: "kenji",
     display_name: "Kenji Park",
     github_handle: "kpark",
+    gitlab_username: "kpark",
     slack_user_id: "U0DEMO004",
     slug: "kenji-park",
     persona: "newer engineer; ramping on the billing service, first solo PR",
@@ -53,6 +58,7 @@ export const DEMO_MEMBERS: DemoMember[] = [
     seed_id: "rhea",
     display_name: "Rhea Okafor",
     github_handle: "rheao",
+    gitlab_username: "rheao",
     slack_user_id: "U0DEMO005",
     slug: "rhea-okafor",
     persona: "incident lead this week; post-mortem in progress",

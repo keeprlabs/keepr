@@ -19,6 +19,7 @@ export const SECRET_KEYS = {
   custom: "llm.custom.key",
   "claude-code": "llm.claude-code.key",
   github: "github.token",
+  gitlab: "gitlab.token",
   slackBot: "slack.bot_token",
   slackClientId: "slack.client_id",
   slackClientSecret: "slack.client_secret",

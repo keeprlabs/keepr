@@ -60,6 +60,15 @@ const COPY: Record<IntegrationKind, ScopePickerCopy> = {
     emptyCopy:
       "This GitHub account has no repos yet. You can connect a repo after onboarding via Settings.",
   },
+  gitlab: {
+    title: "Pick projects to read.",
+    lede: "We pre-selected the five projects with the most recent activity. Adjust freely — you can change this anytime in Settings.",
+    unit: "projects",
+    groupLabel: "GitLab projects to read",
+    filterPlaceholder: "Filter projects…",
+    emptyCopy:
+      "This GitLab account has no projects yet. You can connect a project after onboarding via Settings.",
+  },
   jira: {
     title: "Pick projects to read.",
     lede: "We pre-selected the first five projects alphabetically. Adjust freely — you can change this anytime in Settings.",

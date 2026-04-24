@@ -103,6 +103,36 @@ function EvidenceBody({ parsed }: { parsed: ParsedEvidence }) {
           )}
         </div>
       );
+    case "gitlab_mr":
+      return (
+        <div>
+          <div className="text-xs font-medium text-ink">
+            {parsed.project}!{parsed.iid}
+          </div>
+          <div className="mt-0.5 text-xs text-ink-soft">{parsed.title}</div>
+          {parsed.body && (
+            <div className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-ink-muted">
+              {parsed.body}
+            </div>
+          )}
+        </div>
+      );
+    case "gitlab_review":
+      return (
+        <div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-ink-soft">{parsed.mrRef}</span>
+            <span className="rounded-full border border-hairline px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-ink-faint">
+              {parsed.state}
+            </span>
+          </div>
+          {parsed.body && (
+            <div className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-ink-muted">
+              {parsed.body}
+            </div>
+          )}
+        </div>
+      );
     case "slack_message":
       return (
         <div>

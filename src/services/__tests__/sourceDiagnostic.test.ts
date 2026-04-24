@@ -27,6 +27,7 @@ import {
 // never appears as a single literal in source.
 const slackTok = (pre: string) => `${pre}` + "-" + "T0000000000-B0000000000-fakeAlphaNum0123456789AB";
 const ghpTok = (pre: string) => `${pre}` + "_" + "abcdefghijklmnopqrstuvwxyz0123456789ABCD";
+const glTok = (pre: string) => `${pre}` + "-" + "abcdefghijklmnopqrstuvwxyz0123456789ABCD";
 const linearTok = "lin_api" + "_" + "abcdefghijklmnopqrstuvwxyz0123456789ABCD";
 const jwtTok = "eyJ" + "fakeHeaderForTesting" + "." + "eyJfakePayloadForTesting123" + "." + "fakeSignatureForTestingOnly0123";
 
@@ -66,6 +67,16 @@ describe("scrubSecrets", () => {
     const tok = "github" + "_pat_" + "11ABCDEFG0123456789_abcdefghijklmnop";
     const out = scrubSecrets(`Bearer ${tok} response 401`);
     expect(out).not.toContain(tok);
+  });
+
+  it("redacts every GitLab token prefix variant", () => {
+    const variants = ["glpat", "glsat", "glptt", "gloas", "glrt"];
+    for (const prefix of variants) {
+      const tok = glTok(prefix);
+      const out = scrubSecrets(`GitLab auth failed with token ${tok}`);
+      expect(out).not.toContain(tok);
+      expect(out).toContain("[redacted]");
+    }
   });
 
   it("redacts a Linear API key", () => {
@@ -233,6 +244,51 @@ describe("classifyError — github", () => {
 });
 
 // ---------------------------------------------------------------------------
+// classifyError — GitLab
+// ---------------------------------------------------------------------------
+
+describe("classifyError — gitlab", () => {
+  it("classifies 401 Unauthorized", () => {
+    const r = classifyError(
+      "gitlab",
+      new Error("GitLab /user: 401 Unauthorized")
+    );
+    expect(r.errorKind).toBe("unauthorized");
+    expect(r.fixAction).toBe("renew_token");
+  });
+
+  it("classifies 403 Forbidden as missing_scope", () => {
+    const r = classifyError(
+      "gitlab",
+      new Error("GitLab /projects/1/merge_requests: 403 Forbidden")
+    );
+    expect(r.errorKind).toBe("missing_scope");
+  });
+
+  it("classifies 404 as project_not_found", () => {
+    const r = classifyError(
+      "gitlab",
+      new Error("GitLab /projects/1: 404 Not Found")
+    );
+    expect(r.errorKind).toBe("project_not_found");
+    expect(r.fixAction).toBe("settings");
+  });
+
+  it("classifies 429 as rate_limited", () => {
+    const r = classifyError(
+      "gitlab",
+      new Error("GitLab /projects/1/merge_requests: 429 Too Many Requests")
+    );
+    expect(r.errorKind).toBe("rate_limited");
+  });
+
+  it("classifies network error", () => {
+    const r = classifyError("gitlab", new Error("Failed to fetch"));
+    expect(r.errorKind).toBe("network");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // classifyError — Jira
 // ---------------------------------------------------------------------------
 
@@ -321,6 +377,7 @@ describe("classifyError — non-Error inputs", () => {
 describe("describeEmpty", () => {
   it("returns the documented copy per kind", () => {
     expect(describeEmpty("github")).toBe("no PRs in window");
+    expect(describeEmpty("gitlab")).toBe("no MRs in window");
     expect(describeEmpty("slack")).toBe("no messages");
     expect(describeEmpty("jira")).toBe("no updates");
     expect(describeEmpty("linear")).toBe("no issues");
