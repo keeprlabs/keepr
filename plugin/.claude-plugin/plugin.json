@@ -1,6 +1,6 @@
 {
   "name": "keepr",
-  "version": "0.2.2",
+  "version": "0.2.4",
   "description": "AI memory layer for engineering leaders. Trigger Keepr actions from Claude Code; view results in the Keepr desktop app.",
   "author": {
     "name": "keeprlabs",

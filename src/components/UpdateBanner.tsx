@@ -8,7 +8,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 // Injected by Vite from package.json at build time (see vite.config.ts define).
 // Fallback to manual value if the define isn't configured yet.
 const CURRENT_VERSION: string =
-  typeof __KEEPR_VERSION__ !== "undefined" ? __KEEPR_VERSION__ : "0.2.2";
+  typeof __KEEPR_VERSION__ !== "undefined" ? __KEEPR_VERSION__ : "0.2.4";
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const STORAGE_KEY = "keepr_update_check";
 const GITHUB_API = "https://api.github.com/repos/keeprlabs/keepr/releases/latest";

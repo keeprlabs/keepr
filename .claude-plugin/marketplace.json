@@ -9,7 +9,7 @@
       "name": "keepr",
       "source": "./plugin",
       "description": "AI memory layer for engineering leaders — follow-ups, team pulse, 1:1 prep from Claude Code.",
-      "version": "0.2.2"
+      "version": "0.2.4"
     }
   ]
 }
