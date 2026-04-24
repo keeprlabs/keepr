@@ -2,7 +2,13 @@
 // single serif display for titles, hairline borders, one accent, a lot of
 // whitespace. Every screen should feel like a single decision.
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import { forwardRef, useEffect, useRef } from "react";
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  KeyboardEvent,
+  ReactNode,
+} from "react";
 
 export function Title({ children }: { children: ReactNode }) {
   return (
@@ -141,6 +147,143 @@ export function StepFooter({
       {children}
       <div className="flex-1" />
       {right}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scope picker primitives — used by StepSlack / StepGitHub / StepJira /
+// StepLinear AND by the corresponding Settings panels (one source of truth
+// for chip UX). Composition only: state lives in `useScopePicker`.
+// ---------------------------------------------------------------------------
+
+// A toggleable pill for a single source (channel / repo / project / team).
+// Styles lifted verbatim from Settings.tsx:300-318. Hover darkens border
+// to ink/25. The chip emits onClick — toggle semantics are owned by the
+// hook, never the component.
+export function SourceChip({
+  checked,
+  label,
+  onClick,
+  disabled,
+}: {
+  checked: boolean;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      aria-disabled={disabled || undefined}
+      disabled={disabled}
+      onClick={onClick}
+      className={`rounded-full border px-3 py-1 text-xs transition-all duration-180 ease-calm disabled:opacity-40 ${
+        checked
+          ? "border-ink/80 bg-ink text-canvas"
+          : "border-hairline text-ink-soft hover:border-ink/25 hover:text-ink"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+// Wraps a row/grid of <SourceChip>. Pure layout + group semantics.
+export function ChipGrid({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-wrap gap-2">
+      {children}
+    </div>
+  );
+}
+
+// Filter input: thin wrapper around <Input>. Calls onChange with the
+// string value (not the raw event). Escape clears and refocuses self.
+// Forwards ref so parents can focus it programmatically (used by the
+// scope picker's "focus-on-section-rise" behavior).
+export const FilterInput = forwardRef<
+  HTMLInputElement,
+  {
+    value: string;
+    onChange: (next: string) => void;
+    placeholder?: string;
+  }
+>(function FilterInput({ value, onChange, placeholder }, forwardedRef) {
+  const localRef = useRef<HTMLInputElement | null>(null);
+  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onChange("");
+      localRef.current?.focus();
+    }
+  }
+  return (
+    <input
+      ref={(node) => {
+        localRef.current = node;
+        if (typeof forwardedRef === "function") forwardedRef(node);
+        else if (forwardedRef) forwardedRef.current = node;
+      }}
+      type="text"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      className={inputCls}
+    />
+  );
+});
+
+// The shell for one scope-picker section. Renders the hairline separator,
+// h2 header, lede, mono count label (aria-live so screen readers hear
+// updates), and the children (filter / chip grid / show-all link).
+//
+// `onMount` fires once after first paint — used by the parent step to
+// scroll the section into view + move focus to the filter input.
+export function ScopeSection({
+  title,
+  lede,
+  countLabel,
+  onMount,
+  children,
+}: {
+  title: string;
+  lede: ReactNode;
+  countLabel: ReactNode;
+  onMount?: (root: HTMLDivElement) => void;
+  children: ReactNode;
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (rootRef.current && onMount) onMount(rootRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return (
+    <div
+      ref={rootRef}
+      className="mt-8 border-t border-hairline pb-6 pt-8"
+    >
+      <h2 className="display-serif mb-3 text-[24px] leading-[1.2] text-ink">
+        {title}
+      </h2>
+      <p className="mb-4 max-w-[54ch] text-md text-ink-muted">{lede}</p>
+      <div
+        role="status"
+        aria-live="polite"
+        className="mono mb-4 text-xxs uppercase tracking-[0.14em] text-ink-faint"
+      >
+        {countLabel}
+      </div>
+      {children}
     </div>
   );
 }

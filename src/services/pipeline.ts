@@ -521,7 +521,7 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
       || (cfg.selected_linear_teams || []).length > 0;
     if (!hasAnySources) {
       throw new Error(
-        "No data sources selected. Go to Settings and connect at least one GitHub repo, Slack channel, Jira project, or Linear team."
+        "No data sources selected. Open Settings and connect at least one Slack channel, GitHub repo, Jira project, or Linear team."
       );
     }
 

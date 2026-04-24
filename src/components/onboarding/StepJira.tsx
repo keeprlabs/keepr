@@ -17,6 +17,7 @@ import {
   StatusLine,
   StepFooter,
 } from "./primitives";
+import { ScopePickerPanel } from "./ScopePickerPanel";
 
 export function StepJira({
   onNext,
@@ -30,6 +31,7 @@ export function StepJira({
   const [token, setToken] = useState("");
   const [status, setStatus] = useState<"idle" | "testing" | "ok" | "err">("idle");
   const [errMsg, setErrMsg] = useState("");
+  const [scopeCount, setScopeCount] = useState(0);
 
   const test = async () => {
     if (!url.trim() || !email.trim() || !token.trim()) return;
@@ -100,9 +102,27 @@ export function StepJira({
 
       <StatusLine state={status} message={status === "err" ? errMsg : "Connected."} />
 
+      {status === "ok" && (
+        <ScopePickerPanel
+          integration="jira"
+          onSelectedCountChange={setScopeCount}
+        />
+      )}
+
       <StepFooter right={<GhostButton onClick={onSkip}>Skip</GhostButton>}>
         {status === "ok" ? (
-          <PrimaryButton onClick={onNext}>Continue</PrimaryButton>
+          <PrimaryButton
+            onClick={onNext}
+            disabled={scopeCount === 0}
+            aria-disabled={scopeCount === 0}
+            title={
+              scopeCount === 0
+                ? "Pick at least one project, or skip this step."
+                : undefined
+            }
+          >
+            Continue
+          </PrimaryButton>
         ) : (
           <PrimaryButton onClick={test} disabled={!url.trim() || !email.trim() || !token.trim()}>
             Test connection

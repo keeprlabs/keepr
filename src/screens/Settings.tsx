@@ -1,6 +1,6 @@
 // Settings — same primitives as onboarding; just a flat list of panels.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
@@ -22,6 +22,7 @@ import * as linear from "../services/linear";
 import type { AppConfig, FeatureFlags, TeamMember } from "../lib/types";
 import { DEFAULT_CONFIG, DEFAULT_FEATURE_FLAGS } from "../lib/types";
 import { GitHubIcon, SlackIcon, JiraIcon, LinearIcon } from "../components/primitives/SourceBadge";
+import { ChipGrid, SourceChip } from "../components/onboarding/primitives";
 
 export function Settings() {
   const [cfg, setCfg] = useState<AppConfig>(DEFAULT_CONFIG);
@@ -68,6 +69,44 @@ export function Settings() {
   useEffect(() => {
     load();
   }, []);
+
+  // Auto-load gating: if the user has no prior selections for Slack/GitHub,
+  // kick off the lister on first open so they see chips without clicking.
+  // Power users with 200+ channels keep the explicit "Reload" affordance —
+  // no fetch tax on every Settings visit.
+  //
+  // Refs (not state) so the guard reads the latest value without stale-
+  // closure bugs when load() resolves after the user has already typed a
+  // token; deps cover every input the effect actually reads.
+  const slackAutoLoadedRef = useRef(false);
+  const ghAutoLoadedRef = useRef(false);
+  useEffect(() => {
+    if (
+      !slackAutoLoadedRef.current &&
+      cfg.selected_slack_channels.length === 0 &&
+      slackChannels.length === 0 &&
+      slackToken.trim()
+    ) {
+      slackAutoLoadedRef.current = true;
+      void loadSlackChannels();
+    }
+    if (
+      !ghAutoLoadedRef.current &&
+      cfg.selected_github_repos.length === 0 &&
+      ghRepos.length === 0 &&
+      ghToken.trim()
+    ) {
+      ghAutoLoadedRef.current = true;
+      void loadGhRepos();
+    }
+  }, [
+    cfg.selected_slack_channels.length,
+    cfg.selected_github_repos.length,
+    slackChannels.length,
+    ghRepos.length,
+    slackToken,
+    ghToken,
+  ]);
 
   const pickMemoryDir = async () => {
     const chosen = await openDialog({ directory: true, multiple: false });
@@ -291,14 +330,18 @@ export function Settings() {
             </div>
           </Field>
           <div className="mb-3">
-            <Ghost onClick={loadSlackChannels}>Load public channels</Ghost>
+            <Ghost onClick={loadSlackChannels}>
+              {slackChannels.length > 0 ? "Reload" : "Load public channels"}
+            </Ghost>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <ChipGrid label="Slack channels to read">
             {slackChannels.map((ch) => {
               const on = cfg.selected_slack_channels.some((c) => c.id === ch.id);
               return (
-                <button
+                <SourceChip
                   key={ch.id}
+                  checked={on}
+                  label={`#${ch.name}`}
                   onClick={async () => {
                     const next = on
                       ? cfg.selected_slack_channels.filter((c) => c.id !== ch.id)
@@ -306,17 +349,10 @@ export function Settings() {
                     await setConfig({ selected_slack_channels: next });
                     setCfg({ ...cfg, selected_slack_channels: next });
                   }}
-                  className={`rounded-full border px-3 py-1 text-xs transition-all duration-180 ease-calm ${
-                    on
-                      ? "border-ink/80 bg-ink text-canvas"
-                      : "border-hairline text-ink-soft hover:border-ink/25 hover:text-ink"
-                  }`}
-                >
-                  #{ch.name}
-                </button>
+                />
               );
             })}
-          </div>
+          </ChipGrid>
           {cfg.selected_slack_channels.length > 0 && (
             <div className="mt-3 text-xxs text-ink-faint">
               {cfg.selected_slack_channels.length}/10 channels selected
@@ -337,15 +373,19 @@ export function Settings() {
             </div>
           </Field>
           <div className="mb-3">
-            <Ghost onClick={loadGhRepos}>Load my repos</Ghost>
+            <Ghost onClick={loadGhRepos}>
+              {ghRepos.length > 0 ? "Reload" : "Load my repos"}
+            </Ghost>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <ChipGrid label="GitHub repos to read">
             {ghRepos.map((r) => {
               const [owner, repo] = r.full_name.split("/");
               const on = cfg.selected_github_repos.some((x) => x.owner === owner && x.repo === repo);
               return (
-                <button
+                <SourceChip
                   key={r.full_name}
+                  checked={on}
+                  label={r.full_name}
                   onClick={async () => {
                     const next = on
                       ? cfg.selected_github_repos.filter((x) => !(x.owner === owner && x.repo === repo))
@@ -353,17 +393,10 @@ export function Settings() {
                     await setConfig({ selected_github_repos: next });
                     setCfg({ ...cfg, selected_github_repos: next });
                   }}
-                  className={`rounded-full border px-3 py-1 text-xs transition-all duration-180 ease-calm ${
-                    on
-                      ? "border-ink/80 bg-ink text-canvas"
-                      : "border-hairline text-ink-soft hover:border-ink/25 hover:text-ink"
-                  }`}
-                >
-                  {r.full_name}
-                </button>
+                />
               );
             })}
-          </div>
+          </ChipGrid>
         </Panel>
 
         <Panel title="Jira">

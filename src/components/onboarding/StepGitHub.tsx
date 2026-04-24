@@ -14,6 +14,7 @@ import {
   StepFooter,
   Title,
 } from "./primitives";
+import { ScopePickerPanel } from "./ScopePickerPanel";
 import * as github from "../../services/github";
 import { upsertIntegration } from "../../services/db";
 
@@ -32,6 +33,13 @@ export function StepGitHub({
   const [error, setError] = useState("");
   const [login, setLogin] = useState("");
   const [device, setDevice] = useState<github.DeviceCodeResponse | null>(null);
+  const [scopeCount, setScopeCount] = useState(0);
+
+  const gateDisabled = state !== "ok" || scopeCount === 0;
+  const gateTitle =
+    state === "ok" && scopeCount === 0
+      ? "Pick at least one repo, or skip this step."
+      : undefined;
 
   // The device-flow path is only "available" when the build has a real
   // client id. The placeholder ships until we register an OAuth
@@ -145,6 +153,13 @@ export function StepGitHub({
             />
           </Field>
 
+          {state === "ok" && (
+            <ScopePickerPanel
+              integration="github"
+              onSelectedCountChange={setScopeCount}
+            />
+          )}
+
           <StepFooter
             right={
               <div className="flex items-center gap-2">
@@ -156,7 +171,12 @@ export function StepGitHub({
                     Skip for now
                   </button>
                 )}
-                <GhostButton disabled={state !== "ok"} onClick={onNext}>
+                <GhostButton
+                  disabled={gateDisabled}
+                  aria-disabled={gateDisabled}
+                  title={gateTitle}
+                  onClick={onNext}
+                >
                   Continue →
                 </GhostButton>
               </div>
@@ -197,6 +217,13 @@ export function StepGitHub({
             </Lede>
           )}
 
+          {state === "ok" && (
+            <ScopePickerPanel
+              integration="github"
+              onSelectedCountChange={setScopeCount}
+            />
+          )}
+
           <StepFooter
             right={
               <div className="flex items-center gap-2">
@@ -208,7 +235,12 @@ export function StepGitHub({
                     Skip for now
                   </button>
                 )}
-                <GhostButton disabled={state !== "ok"} onClick={onNext}>
+                <GhostButton
+                  disabled={gateDisabled}
+                  aria-disabled={gateDisabled}
+                  title={gateTitle}
+                  onClick={onNext}
+                >
                   Continue →
                 </GhostButton>
               </div>

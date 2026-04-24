@@ -17,6 +17,7 @@ import {
   StepFooter,
   Title,
 } from "./primitives";
+import { ScopePickerPanel } from "./ScopePickerPanel";
 import { SECRET_KEYS, getSecret, setSecret } from "../../services/secrets";
 import { upsertIntegration } from "../../services/db";
 import * as slack from "../../services/slack";
@@ -52,6 +53,7 @@ export function StepSlack({
   const [team, setTeam] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [scopeCount, setScopeCount] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -179,6 +181,13 @@ export function StepSlack({
         />
       </Field>
 
+      {state === "ok" && (
+        <ScopePickerPanel
+          integration="slack"
+          onSelectedCountChange={setScopeCount}
+        />
+      )}
+
       <StepFooter
         right={
           <div className="flex items-center gap-2">
@@ -190,7 +199,16 @@ export function StepSlack({
                 Skip for now
               </button>
             )}
-            <GhostButton disabled={state !== "ok"} onClick={onNext}>
+            <GhostButton
+              disabled={state !== "ok" || scopeCount === 0}
+              aria-disabled={state !== "ok" || scopeCount === 0}
+              title={
+                state === "ok" && scopeCount === 0
+                  ? "Pick at least one channel, or skip this step."
+                  : undefined
+              }
+              onClick={onNext}
+            >
               Continue →
             </GhostButton>
           </div>

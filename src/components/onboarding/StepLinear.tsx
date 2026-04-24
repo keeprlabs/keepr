@@ -16,6 +16,7 @@ import {
   StatusLine,
   StepFooter,
 } from "./primitives";
+import { ScopePickerPanel } from "./ScopePickerPanel";
 
 export function StepLinear({
   onNext,
@@ -27,6 +28,7 @@ export function StepLinear({
   const [key, setKey] = useState("");
   const [status, setStatus] = useState<"idle" | "testing" | "ok" | "err">("idle");
   const [errMsg, setErrMsg] = useState("");
+  const [scopeCount, setScopeCount] = useState(0);
 
   const test = async () => {
     if (!key.trim()) return;
@@ -74,9 +76,27 @@ export function StepLinear({
 
       <StatusLine state={status} message={status === "err" ? errMsg : "Connected."} />
 
+      {status === "ok" && (
+        <ScopePickerPanel
+          integration="linear"
+          onSelectedCountChange={setScopeCount}
+        />
+      )}
+
       <StepFooter right={<GhostButton onClick={onSkip}>Skip</GhostButton>}>
         {status === "ok" ? (
-          <PrimaryButton onClick={onNext}>Continue</PrimaryButton>
+          <PrimaryButton
+            onClick={onNext}
+            disabled={scopeCount === 0}
+            aria-disabled={scopeCount === 0}
+            title={
+              scopeCount === 0
+                ? "Pick at least one team, or skip this step."
+                : undefined
+            }
+          >
+            Continue
+          </PrimaryButton>
         ) : (
           <PrimaryButton onClick={test} disabled={!key.trim()}>
             Test connection
