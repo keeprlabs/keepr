@@ -141,6 +141,12 @@ export function StepSlack({
           <span className="mono text-xs">Bot User OAuth Token</span>{" "}
           (starts with <code>xoxb-</code>), and paste it below.
         </NumberedStep>
+        <NumberedStep n={5}>
+          In Slack, open each channel you want Keepr to read and type{" "}
+          <code>/invite @Keepr</code> (or use the channel's{" "}
+          <em>Add apps</em> menu). Keepr can only read channels it's a
+          member of.
+        </NumberedStep>
       </ol>
 
       <div className="mb-6 rounded-md border border-hairline bg-surface/50">

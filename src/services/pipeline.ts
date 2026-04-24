@@ -41,6 +41,20 @@ import { getProvider, setCustomConfig } from "./llm";
 import { writeMemory, readMemoryContext } from "./memory";
 import { throwIfAborted, isAbortError } from "../lib/abort";
 import { info as logInfo, warn as logWarn } from "@tauri-apps/plugin-log";
+import {
+  classifyError,
+  describeEmpty,
+  summarizeSources,
+  type SourceErrorKind,
+} from "./sourceDiagnostic";
+import type {
+  FixAction,
+  IntegrationKind,
+  PulseOutcome,
+  SourceKindStatus,
+} from "./pulseOutcome";
+
+export type { PulseOutcome, SourceKindStatus } from "./pulseOutcome";
 
 // ---- Normalization -------------------------------------------------------
 
@@ -368,7 +382,105 @@ function errMessage(err: unknown): string {
   return String(err);
 }
 
-export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
+// ---- Per-source result tracking + aggregation ----------------------------
+//
+// During the fetch loop we record one SourceResult per source instance
+// (channel/repo/project/team). After the loop we collapse to ONE
+// SourceKindStatus per integration kind via the rules in
+// tasks/pulse-outcome-states.md. Per-source granularity stays in `logWarn`
+// for debugging; the UI only ever sees the per-kind rollup.
+
+type SourceResult =
+  | { kind: IntegrationKind; status: "ok_data"; itemCount: number }
+  | { kind: IntegrationKind; status: "ok_empty" }
+  | {
+      kind: IntegrationKind;
+      status: "error";
+      errorKind: SourceErrorKind;
+      detail: string;
+      fixAction?: FixAction;
+    };
+
+const ALL_KINDS: IntegrationKind[] = ["github", "slack", "jira", "linear"];
+
+function aggregateByKind(
+  results: SourceResult[],
+  kindCounts: Record<IntegrationKind, number>
+): SourceKindStatus[] {
+  const out: SourceKindStatus[] = [];
+  for (const kind of ALL_KINDS) {
+    const sourceCount = kindCounts[kind];
+    if (sourceCount === 0) continue; // user has no sources of this kind — skip
+    const subset = results.filter((r) => r.kind === kind);
+    out.push(aggregateOneKind(kind, sourceCount, subset));
+  }
+  return out;
+}
+
+function aggregateOneKind(
+  kind: IntegrationKind,
+  sourceCount: number,
+  subset: SourceResult[]
+): SourceKindStatus {
+  // Rule 1: any source returned data → kind is ok_data with sum of items.
+  // Rule 4 fold-in: data wins even if siblings errored. Errors stay in logWarn.
+  const dataResults = subset.filter((r) => r.status === "ok_data");
+  if (dataResults.length > 0) {
+    const itemCount = dataResults.reduce(
+      (sum, r) => sum + (r.status === "ok_data" ? r.itemCount : 0),
+      0
+    );
+    return { kind, sourceCount, status: "ok_data", itemCount };
+  }
+
+  // No data. Look for errors.
+  const errors = subset.filter(
+    (r): r is Extract<SourceResult, { status: "error" }> => r.status === "error"
+  );
+  if (errors.length === 0) {
+    // Rule 2: all sources succeeded but returned 0 items.
+    return { kind, sourceCount, status: "ok_empty", detail: describeEmpty(kind) };
+  }
+
+  // Rule 3: at least one error, no data. Aggregate the error.
+  const firstKind = errors[0].errorKind;
+  const allSameKind = errors.every((e) => e.errorKind === firstKind);
+  if (allSameKind) {
+    return {
+      kind,
+      sourceCount,
+      status: "error",
+      errorKind: firstKind,
+      detail: errors[0].detail,
+      fixAction: errors[0].fixAction,
+      failedCount: errors.length,
+    };
+  }
+  // Mixed errors within one kind. Defensive copy — happens when e.g. some
+  // Slack channels return not_in_channel and others return invalid_auth.
+  return {
+    kind,
+    sourceCount,
+    status: "error",
+    errorKind: "mixed",
+    detail: `${errors.length} sources failed — check Settings`,
+    fixAction: "settings",
+    failedCount: errors.length,
+  };
+}
+
+function classifyOutcomeKind(
+  sources: SourceKindStatus[]
+): "ready" | "empty" | "partial_failure" | "total_failure" {
+  if (sources.some((s) => s.status === "ok_data")) return "ready";
+  const hasError = sources.some((s) => s.status === "error");
+  const hasEmpty = sources.some((s) => s.status === "ok_empty");
+  if (hasError && !hasEmpty) return "total_failure";
+  if (hasError && hasEmpty) return "partial_failure";
+  return "empty"; // all configured kinds returned ok_empty
+}
+
+export async function runWorkflow(opts: RunOptions): Promise<PulseOutcome> {
   // Tee progress events into the log file so every fetch / prune / map /
   // synthesize / write step is visible in the platform log dir — makes
   // silent fetch failures diagnosable via `tail -f`.
@@ -403,7 +515,13 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     progress("fetch", "Loading Slack channels & GitHub repos");
 
     const allItems: NormalizedItem[] = [];
-    const fetchErrors: string[] = [];
+
+    // Per-source results accumulated alongside `allItems`. Each fetcher
+    // try/catch records exactly one entry. After the loop we collapse to
+    // SourceKindStatus[] for the outcome. Subsumes the prior `fetchErrors`
+    // accumulator (commit 50af362) — classifyError gives us a typed error
+    // record per source, the simple string list is no longer needed.
+    const perSource: SourceResult[] = [];
 
     // Each new session fetches the full time range — the incremental
     // cache is skipped (forceRefresh: true). The cache was causing
@@ -431,11 +549,16 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         );
         progress("fetch", `GitHub: ${repo.owner}/${repo.repo} → ${prs.length} PRs`);
         allItems.push(...normalizeGithub(prs, `${repo.owner}/${repo.repo}`));
+        perSource.push(
+          prs.length === 0
+            ? { kind: "github", status: "ok_empty" }
+            : { kind: "github", status: "ok_data", itemCount: prs.length }
+        );
       } catch (err) {
         if (isAbortError(err)) throw err;
-        const msg = errMessage(err);
-        fetchErrors.push(`GitHub ${repo.owner}/${repo.repo}: ${msg}`);
-        logWarn(`github fetch failed (${repo.owner}/${repo.repo}): ${msg}`).catch(() => {});
+        logWarn(`github fetch failed (${repo.owner}/${repo.repo}): ${errMessage(err)}`).catch(() => {});
+        const c = classifyError("github", err);
+        perSource.push({ kind: "github", status: "error", ...c });
       }
     }
 
@@ -461,11 +584,16 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         );
         progress("fetch", `Slack: #${ch.name} → ${msgs.length} msgs`);
         allItems.push(...normalizeSlack(msgs));
+        perSource.push(
+          msgs.length === 0
+            ? { kind: "slack", status: "ok_empty" }
+            : { kind: "slack", status: "ok_data", itemCount: msgs.length }
+        );
       } catch (err) {
         if (isAbortError(err)) throw err;
-        const msg = errMessage(err);
-        fetchErrors.push(`Slack #${ch.name}: ${msg}`);
-        logWarn(`slack fetch failed (#${ch.name}): ${msg}`).catch(() => {});
+        logWarn(`slack fetch failed (#${ch.name}): ${errMessage(err)}`).catch(() => {});
+        const c = classifyError("slack", err);
+        perSource.push({ kind: "slack", status: "error", ...c });
       }
     }
 
@@ -481,11 +609,16 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         );
         progress("fetch", `Jira: ${proj.key} → ${issues.length} issues`);
         allItems.push(...normalizeJira(issues, proj.key));
+        perSource.push(
+          issues.length === 0
+            ? { kind: "jira", status: "ok_empty" }
+            : { kind: "jira", status: "ok_data", itemCount: issues.length }
+        );
       } catch (err) {
         if (isAbortError(err)) throw err;
-        const msg = errMessage(err);
-        fetchErrors.push(`Jira ${proj.key}: ${msg}`);
-        logWarn(`jira fetch failed (${proj.key}): ${msg}`).catch(() => {});
+        logWarn(`jira fetch failed (${proj.key}): ${errMessage(err)}`).catch(() => {});
+        const c = classifyError("jira", err);
+        perSource.push({ kind: "jira", status: "error", ...c });
       }
     }
 
@@ -502,11 +635,16 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
         );
         progress("fetch", `Linear: ${team.key} → ${issues.length} issues`);
         allItems.push(...normalizeLinear(issues, team.key));
+        perSource.push(
+          issues.length === 0
+            ? { kind: "linear", status: "ok_empty" }
+            : { kind: "linear", status: "ok_data", itemCount: issues.length }
+        );
       } catch (err) {
         if (isAbortError(err)) throw err;
-        const msg = errMessage(err);
-        fetchErrors.push(`Linear ${team.key}: ${msg}`);
-        logWarn(`linear fetch failed (${team.key}): ${msg}`).catch(() => {});
+        logWarn(`linear fetch failed (${team.key}): ${errMessage(err)}`).catch(() => {});
+        const c = classifyError("linear", err);
+        perSource.push({ kind: "linear", status: "error", ...c });
       }
     }
 
@@ -514,36 +652,67 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     progress("prune", `Pruning ${allItems.length} raw items`);
 
     // Pre-check: bail early with a specific message if no data sources
-    // are configured at all.
-    const hasAnySources = cfg.selected_github_repos.length > 0
-      || cfg.selected_slack_channels.length > 0
-      || (cfg.selected_jira_projects || []).length > 0
-      || (cfg.selected_linear_teams || []).length > 0;
+    // are configured at all. This is a configuration error, not a fetch
+    // outcome — keeps throwing so the caller's existing error path fires.
+    const kindCounts: Record<IntegrationKind, number> = {
+      github: cfg.selected_github_repos.length,
+      slack: cfg.selected_slack_channels.length,
+      jira: (cfg.selected_jira_projects || []).length,
+      linear: (cfg.selected_linear_teams || []).length,
+    };
+    const hasAnySources =
+      kindCounts.github + kindCounts.slack + kindCounts.jira + kindCounts.linear > 0;
     if (!hasAnySources) {
       throw new Error(
         "No data sources selected. Open Settings and connect at least one Slack channel, GitHub repo, Jira project, or Linear team."
       );
     }
 
+    // Aggregate per-source → per-kind for the outcome shape.
+    const aggregated = aggregateByKind(perSource, kindCounts);
+
+    // Zero-items branch: classify and return a typed PulseOutcome. The old
+    // behavior was a generic throw — see tasks/pulse-outcome-states.md for
+    // the redesign and the per-outcome session lifecycle (D1).
     if (!allItems.length) {
-      const sources: string[] = [];
-      if (cfg.selected_github_repos.length)
-        sources.push(`${cfg.selected_github_repos.length} repo(s)`);
-      if (cfg.selected_slack_channels.length)
-        sources.push(`${cfg.selected_slack_channels.length} channel(s)`);
-      if ((cfg.selected_jira_projects || []).length)
-        sources.push(`${cfg.selected_jira_projects.length} Jira project(s)`);
-      if ((cfg.selected_linear_teams || []).length)
-        sources.push(`${cfg.selected_linear_teams.length} Linear team(s)`);
-      const detail = fetchErrors.length
-        ? `\n\nErrors encountered:\n${fetchErrors.map(e => `• ${e}`).join("\n")}`
-        : "\n\nNo errors were reported, which means the APIs returned empty results. " +
-          "Check that your time range has recent activity, or that your tokens have the right scopes.";
-      throw new Error(
-        `Fetched from ${sources.join(" + ")} but got zero items.` +
-        detail +
-        "\n\nCheck Settings → Connected integrations."
-      );
+      const outcomeKind = classifyOutcomeKind(aggregated);
+      // Should never be "ready" here (we have no items), but TS-narrow it out.
+      if (outcomeKind === "ready") {
+        // Defensive: aggregator said data exists but allItems is empty.
+        // Fall through to the throw below as a loud signal.
+        throw new Error(
+          "Internal: aggregator inconsistent with allItems — please report."
+        );
+      }
+      const outcome: PulseOutcome = {
+        kind: outcomeKind,
+        sources: aggregated,
+        windowDays: opts.daysBack,
+      };
+      logInfo(
+        `pulse outcome: ${outcome.kind} — ${summarizeSources(outcome.sources)}`
+      ).catch(() => {});
+
+      // Session lifecycle (D1): empty deletes the row, total_failure marks
+      // failed, partial_failure marks complete (some kinds did work, just
+      // no items survived). See plan section "File-level changes".
+      if (outcome.kind === "empty") {
+        try {
+          await deleteSession(sessionId);
+        } catch (delErr) {
+          console.warn("pipeline: failed to delete empty-outcome session row", delErr);
+        }
+      } else if (outcome.kind === "total_failure") {
+        await setSessionStatus(
+          sessionId,
+          "failed",
+          "Every source returned an error"
+        );
+      } else {
+        // partial_failure — record was created, no output, but not a hard fail.
+        await setSessionStatus(sessionId, "complete");
+      }
+      return outcome;
     }
 
     let pruned = prune(allItems);
@@ -891,7 +1060,19 @@ export async function runWorkflow(opts: RunOptions): Promise<RunResult> {
     });
     await setSessionStatus(sessionId, "complete");
 
-    return { sessionId, outputPath, markdown, costUsd };
+    const successOutcome: PulseOutcome = {
+      kind: "ready",
+      sessionId,
+      outputPath,
+      markdown,
+      costUsd,
+      sources: aggregated,
+      windowDays: opts.daysBack,
+    };
+    logInfo(
+      `pulse outcome: ready — ${summarizeSources(successOutcome.sources)}`
+    ).catch(() => {});
+    return successOutcome;
   } catch (err: any) {
     // User cancelled the run. Delete the session row (and cascade its
     // evidence) so a misclick doesn't clutter the sidebar. Re-throw the

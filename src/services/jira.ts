@@ -1,6 +1,11 @@
 // Jira Cloud — BYO API token model. User provides their Atlassian email +
 // API token (generated at id.atlassian.com/manage-profile/security/api-tokens).
 // We use Basic auth with email:token, same as Jira's official docs recommend.
+//
+// Error message format is semi-public API: src/services/sourceDiagnostic.ts
+// greps the strings thrown from this module (e.g. "Jira /search: 410 Gone")
+// to classify failures. If you change a throw format, update the
+// JIRA_MATCHERS regexes there.
 
 import { fetch } from "@tauri-apps/plugin-http";
 import { SECRET_KEYS, getSecret } from "./secrets";

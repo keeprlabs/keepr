@@ -3,6 +3,11 @@
 // The Client ID below is a *public* identifier for Keepr's GitHub OAuth app.
 // There is NO client secret in the binary — that is precisely why device flow
 // is the right pattern for a distributed desktop app.
+//
+// Error message format is semi-public API: src/services/sourceDiagnostic.ts
+// greps the strings thrown from this module (e.g. "GitHub /user: 401 Bad
+// credentials") to classify failures. If you change a throw format, update
+// the GITHUB_MATCHERS regexes there.
 
 import { fetch } from "@tauri-apps/plugin-http";
 import { SECRET_KEYS, getSecret, setSecret } from "./secrets";

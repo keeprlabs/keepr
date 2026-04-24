@@ -100,6 +100,13 @@ describe("StepSlack", () => {
     ).toBeInTheDocument();
   });
 
+  it("#1b pre-auth — step 05 /invite @Keepr instruction is present (regression)", () => {
+    renderStep();
+    // The /invite @Keepr instruction is load-bearing for the most common
+    // cause of partial_failure (bot not in channel). Don't lose the copy.
+    expect(screen.getByText(/\/invite @Keepr/)).toBeInTheDocument();
+  });
+
   it("#2 post-auth — scope section appears and filter input receives focus", async () => {
     const channels = [
       { id: "C1", name: "a", num_members: 100 },

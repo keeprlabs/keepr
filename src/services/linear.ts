@@ -1,6 +1,11 @@
 // Linear — BYO personal API key model. User generates a key at
 // linear.app/settings/api. We use the GraphQL API which is clean and
 // well-documented.
+//
+// Error message format is semi-public API: src/services/sourceDiagnostic.ts
+// greps the strings thrown from this module (e.g. "Linear API: Authentication
+// failed") to classify failures. If you change a throw format, update the
+// LINEAR_MATCHERS regexes there.
 
 import { fetch } from "@tauri-apps/plugin-http";
 import { SECRET_KEYS, getSecret } from "./secrets";

@@ -47,6 +47,7 @@ import type {
   TeamMember,
   WorkflowType,
 } from "./lib/types";
+import type { IntegrationKind } from "./services/pulseOutcome";
 
 export default function App() {
   const [ready, setReady] = useState(false);
@@ -62,6 +63,20 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [runState, setRunState] = useState<RunState | null>(null);
   const runControllerRef = useRef<AbortController | null>(null);
+  // Stash the args of the last workflow dispatch so the RunOverlay's
+  // "Try N days" button can re-run the same workflow/target with a longer
+  // window. Set inside runWithOverlay on every dispatch; read by
+  // handleTryLongerWindow below.
+  const lastRunArgsRef = useRef<{
+    workflow: WorkflowType;
+    targetMember?: TeamMember;
+    startDetail: string;
+  } | null>(null);
+  // Tracks the post-ready "linger" timeout so a new dispatch cancels any
+  // pending clear+navigate from the previous run. Otherwise a user who
+  // rapidly triggers a second pulse sees the new overlay, then 500ms
+  // later the stale timeout fires setRunState(null) and hides it.
+  const readyLingerRef = useRef<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const showArchivedRef = useRef(showArchived);
   showArchivedRef.current = showArchived;
@@ -187,10 +202,25 @@ export default function App() {
       daysBack: number;
       startDetail: string;
     }) => {
-      // Abort any previous in-flight run before starting a new one.
+      // Abort any previous in-flight run before starting a new one. Also
+      // cancel a pending post-ready linger timeout so a stale setRunState
+      // doesn't hide the newly-started run 500ms after its dispatch.
       runControllerRef.current?.abort();
       const controller = new AbortController();
       runControllerRef.current = controller;
+      if (readyLingerRef.current != null) {
+        window.clearTimeout(readyLingerRef.current);
+        readyLingerRef.current = null;
+      }
+
+      // Remember args so "Try N days" can re-dispatch the same workflow
+      // with a longer window. daysBack is NOT stashed — it's the only
+      // thing that differs on retry.
+      lastRunArgsRef.current = {
+        workflow: args.workflow,
+        targetMember: args.targetMember,
+        startDetail: args.startDetail,
+      };
 
       setRunState({ stage: "fetch", detail: args.startDetail });
       try {
@@ -203,12 +233,26 @@ export default function App() {
           onProgress: (stage, detail) =>
             setRunState({ stage: stage as RunState["stage"], detail }),
         });
-        await refresh();
-        setRunState({ stage: "done" });
-        setTimeout(() => {
-          setRunState(null);
-          setView({ kind: "session", id: r.sessionId });
-        }, 500);
+        if (r.kind === "ready") {
+          // Refresh only when the session table actually changed. empty
+          // outcomes delete the row they created; partial/total mutate
+          // status but the session row was already created at dispatch
+          // time, so the sidebar doesn't need to re-fetch on those paths.
+          await refresh();
+          setRunState({ stage: "done" });
+          readyLingerRef.current = window.setTimeout(() => {
+            readyLingerRef.current = null;
+            setRunState(null);
+            setView({ kind: "session", id: r.sessionId });
+          }, 500);
+        } else {
+          // empty / partial_failure / total_failure — render the outcome
+          // view in the overlay. User dismisses (or acts on a button) to
+          // clear it. Refresh the sidebar so the new session row (or its
+          // deletion on empty) is reflected.
+          await refresh();
+          setRunState({ stage: "done", outcome: r });
+        }
       } catch (err: any) {
         if (isAbortError(err)) {
           // User cancelled. Pipeline already deleted the session row
@@ -229,6 +273,49 @@ export default function App() {
   const cancelRun = useCallback(() => {
     runControllerRef.current?.abort();
   }, []);
+
+  // "Try N days" — re-dispatch the most recent workflow with a longer
+  // window. The button only renders after a run terminated with an
+  // outcome, and runWithOverlay sets the ref on every dispatch. So this
+  // ref is expected to be populated whenever the callback fires; if not,
+  // something unusual happened (e.g. Fix-in-Settings cleared the ref,
+  // then a stale render called the callback) and dispatching a generic
+  // team_pulse would be the wrong workflow. Warn loudly and no-op.
+  const handleTryLongerWindow = useCallback(
+    (nextDaysBack: number) => {
+      const last = lastRunArgsRef.current;
+      if (!last) {
+        console.warn(
+          "[RunOverlay] Try-N-days fired with no cached dispatch; ignoring."
+        );
+        return;
+      }
+      void runWithOverlay({
+        workflow: last.workflow,
+        targetMember: last.targetMember,
+        daysBack: nextDaysBack,
+        startDetail: last.startDetail,
+      });
+    },
+    [runWithOverlay]
+  );
+
+  // "Fix in Settings" / "Adjust sources" — clear the overlay and navigate
+  // to Settings. focusKind (if passed) scrolls to that panel.
+  //
+  // Clearing lastRunArgsRef here prevents a stale-member bug: if the user
+  // deletes a member from Settings and THEN clicks Try-N-days from a later
+  // outcome, we shouldn't dispatch against a member that no longer exists.
+  // Once the user is heading to Settings to reconfigure, the previous
+  // dispatch's targetMember is presumed stale.
+  const handleFixInSettings = useCallback(
+    (focusKind?: IntegrationKind) => {
+      lastRunArgsRef.current = null;
+      setRunState(null);
+      setView({ kind: "settings", focusKind });
+    },
+    []
+  );
 
   const runTeamPulse = useCallback(
     (daysBack = 7) =>
@@ -590,7 +677,7 @@ export default function App() {
           {view.kind === "followups" && <FollowUps members={members} />}
           {view.kind === "heatmap" && <TeamHeatmap members={members} />}
           {view.kind === "graph" && <ThreadGraph members={members} />}
-          {view.kind === "settings" && <Settings />}
+          {view.kind === "settings" && <Settings focusKind={view.focusKind} />}
           </div>
         </main>
       </div>
@@ -607,6 +694,8 @@ export default function App() {
         state={runState}
         onDismiss={() => setRunState(null)}
         onCancel={cancelRun}
+        onTryLongerWindow={handleTryLongerWindow}
+        onFixInSettings={handleFixInSettings}
       />
       {demoMode && <DemoPill onExit={handleExitDemo} />}
     </div>

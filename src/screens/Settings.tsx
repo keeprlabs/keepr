@@ -23,8 +23,15 @@ import type { AppConfig, FeatureFlags, TeamMember } from "../lib/types";
 import { DEFAULT_CONFIG, DEFAULT_FEATURE_FLAGS } from "../lib/types";
 import { GitHubIcon, SlackIcon, JiraIcon, LinearIcon } from "../components/primitives/SourceBadge";
 import { ChipGrid, SourceChip } from "../components/onboarding/primitives";
+import type { IntegrationKind } from "../services/pulseOutcome";
 
-export function Settings() {
+export function Settings({
+  focusKind,
+}: {
+  /** When rendered via the RunOverlay "Fix in Settings" button with a single
+   *  broken integration kind, scroll that panel into view on mount. */
+  focusKind?: IntegrationKind;
+} = {}) {
   const [cfg, setCfg] = useState<AppConfig>(DEFAULT_CONFIG);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [slackChannels, setSlackChannels] = useState<slack.SlackChannel[]>([]);
@@ -69,6 +76,30 @@ export function Settings() {
   useEffect(() => {
     load();
   }, []);
+
+  // Scroll to a specific integration panel when caller (typically the
+  // RunOverlay "Fix in Settings" button) passed a focusKind. Waits for
+  // layout via double-rAF — one frame for React commit, a second for the
+  // browser to lay out fonts/icons. More reliable than a fixed setTimeout
+  // across slow hardware.
+  useEffect(() => {
+    if (!focusKind) return;
+    const id = `panel-${focusKind}`;
+    let cancelled = false;
+    const frame1 = requestAnimationFrame(() => {
+      if (cancelled) return;
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        document
+          .getElementById(id)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame1);
+    };
+  }, [focusKind]);
 
   // Auto-load gating: if the user has no prior selections for Slack/GitHub,
   // kick off the lister on first open so they see chips without clicking.
@@ -704,8 +735,14 @@ const PANEL_ICONS: Record<string, React.ReactNode> = {
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   const icon = PANEL_ICONS[title];
+  // Stable id anchor per integration panel so the RunOverlay "Fix in
+  // Settings" button can scroll to the right one via focusKind.
+  const anchor = `panel-${title.toLowerCase()}`;
   return (
-    <section className="hair-b mb-10 pb-10 last:mb-0 last:pb-0 last:border-0">
+    <section
+      id={anchor}
+      className="hair-b mb-10 pb-10 last:mb-0 last:pb-0 last:border-0 scroll-mt-16"
+    >
       <div className="grid grid-cols-[180px_1fr] gap-10">
         <h2 className="flex items-center gap-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
           {icon}

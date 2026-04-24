@@ -1,5 +1,10 @@
 // Slack — BYO-app model. User pastes a bot token (xoxb-...) from their own
 // Slack app in their own workspace. We never distribute a Slack client.
+//
+// Error message format is semi-public API: src/services/sourceDiagnostic.ts
+// greps the strings thrown from this module to classify failures into
+// user-facing copy. If you change a `throw new Error("Slack ...")` format,
+// update the SLACK_MATCHERS regexes there.
 
 import { fetch } from "@tauri-apps/plugin-http";
 import { SECRET_KEYS, getSecret } from "./secrets";

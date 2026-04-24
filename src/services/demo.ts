@@ -383,9 +383,14 @@ export interface DemoRunResult {
   costUsd: number;
 }
 
+// Demo always returns PulseOutcome.ready — fixture data is guaranteed
+// non-empty, so the empty/partial/total paths can't fire here. Wrapping
+// keeps the runner type compatible with runWorkflow.
+import type { PulseOutcome } from "./pulseOutcome";
+
 export async function runDemoWorkflow(
   opts: DemoRunOptions
-): Promise<DemoRunResult> {
+): Promise<PulseOutcome> {
   const progress = opts.onProgress || (() => {});
   const cfg = await getConfig();
   const members = await listMembers();
@@ -643,7 +648,15 @@ export async function runDemoWorkflow(
     });
     await setSessionStatus(sessionId, "complete");
 
-    return { sessionId, outputPath, markdown, costUsd };
+    return {
+      kind: "ready",
+      sessionId,
+      outputPath,
+      markdown,
+      costUsd,
+      sources: [],
+      windowDays: 7,
+    };
   } catch (err: any) {
     console.error("demo pipeline failed", err);
     await setSessionStatus(sessionId, "failed", err?.message || String(err));
