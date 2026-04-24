@@ -222,8 +222,12 @@ export default function App() {
           onProgress: (stage, detail) =>
             setRunState({ stage: stage as RunState["stage"], detail }),
         });
-        await refresh();
         if (r.kind === "ready") {
+          // Refresh only when the session table actually changed. empty
+          // outcomes delete the row they created; partial/total mutate
+          // status but the session row was already created at dispatch
+          // time, so the sidebar doesn't need to re-fetch on those paths.
+          await refresh();
           setRunState({ stage: "done" });
           setTimeout(() => {
             setRunState(null);
@@ -232,7 +236,9 @@ export default function App() {
         } else {
           // empty / partial_failure / total_failure — render the outcome
           // view in the overlay. User dismisses (or acts on a button) to
-          // clear it.
+          // clear it. Refresh the sidebar so the new session row (or its
+          // deletion on empty) is reflected.
+          await refresh();
           setRunState({ stage: "done", outcome: r });
         }
       } catch (err: any) {
@@ -283,8 +289,15 @@ export default function App() {
 
   // "Fix in Settings" / "Adjust sources" — clear the overlay and navigate
   // to Settings. focusKind (if passed) scrolls to that panel.
+  //
+  // Clearing lastRunArgsRef here prevents a stale-member bug: if the user
+  // deletes a member from Settings and THEN clicks Try-N-days from a later
+  // outcome, we shouldn't dispatch against a member that no longer exists.
+  // Once the user is heading to Settings to reconfigure, the previous
+  // dispatch's targetMember is presumed stale.
   const handleFixInSettings = useCallback(
     (focusKind?: IntegrationKind) => {
+      lastRunArgsRef.current = null;
       setRunState(null);
       setView({ kind: "settings", focusKind });
     },

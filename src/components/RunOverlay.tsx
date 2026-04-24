@@ -83,6 +83,21 @@ export function RunOverlay({
   onTryLongerWindow?: (nextDaysBack: number) => void;
   onFixInSettings?: (focusKind?: IntegrationKind) => void;
 }) {
+  // Hooks MUST run unconditionally. Derive everything else as locals so the
+  // null-state early return below is safe under React's Rules of Hooks (a
+  // null→non-null transition would otherwise change the hook call count).
+  const outcome = state?.outcome ?? null;
+  const isOutcomeTerminal =
+    outcome !== null &&
+    (outcome.kind === "empty" ||
+      outcome.kind === "partial_failure" ||
+      outcome.kind === "total_failure");
+  const isDone = state?.stage === "done";
+  const isError = state?.stage === "error";
+  const isRunning = state != null && !isDone && !isError && !isOutcomeTerminal;
+
+  const elapsed = useElapsed(isRunning);
+
   if (!state) return null;
 
   if (
@@ -94,19 +109,7 @@ export function RunOverlay({
     console.warn(`[RunOverlay] Unknown stage "${state.stage}" — progress may be stuck.`);
   }
 
-  const outcome = state.outcome ?? null;
-  const isOutcomeTerminal =
-    outcome !== null &&
-    (outcome.kind === "empty" ||
-      outcome.kind === "partial_failure" ||
-      outcome.kind === "total_failure");
-
   const stageIndex = STAGES.indexOf(state.stage);
-  const isDone = state.stage === "done";
-  const isError = state.stage === "error";
-  const isRunning = !isDone && !isError && !isOutcomeTerminal;
-
-  const elapsed = useElapsed(isRunning);
 
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center">
@@ -296,19 +299,21 @@ function OutcomeView({
         ))}
       </ul>
 
-      <div className="mt-8 flex items-center justify-end gap-2">
-        <button
-          onClick={onDismiss}
-          className="text-xs text-ink-faint hover:text-ink transition-colors mr-2"
-        >
-          Dismiss
-        </button>
-        {showFix && (
+      {/* Action row — primary on the left, Dismiss floats right (de-emphasized
+          text button) per the wireframe hierarchy. Order within the left
+          group: empty → [Try N] [Adjust sources]; partial → [Fix] [Try N];
+          total → [Fix]. */}
+      <div className="mt-8 flex items-center gap-2">
+        {outcome.kind === "empty" && showTryLonger && (
           <button
-            onClick={() => onFixInSettings?.(singleBrokenKind)}
-            className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas transition-colors duration-180 hover:bg-ink-soft"
+            onClick={() => !atWindowMax && onTryLongerWindow?.(nextWindow)}
+            disabled={atWindowMax}
+            title={
+              atWindowMax ? `Already at the max ${MAX_WINDOW_DAYS}-day window.` : undefined
+            }
+            className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas transition-colors duration-180 hover:bg-ink-soft disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Fix in Settings
+            {atWindowMax ? `${MAX_WINDOW_DAYS} days max` : `Try ${nextWindow} days`}
           </button>
         )}
         {outcome.kind === "empty" && (
@@ -319,22 +324,32 @@ function OutcomeView({
             Adjust sources
           </button>
         )}
-        {showTryLonger && (
+        {showFix && (
+          <button
+            onClick={() => onFixInSettings?.(singleBrokenKind)}
+            className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas transition-colors duration-180 hover:bg-ink-soft"
+          >
+            Fix in Settings
+          </button>
+        )}
+        {outcome.kind !== "empty" && showTryLonger && (
           <button
             onClick={() => !atWindowMax && onTryLongerWindow?.(nextWindow)}
             disabled={atWindowMax}
             title={
               atWindowMax ? `Already at the max ${MAX_WINDOW_DAYS}-day window.` : undefined
             }
-            className={`rounded-md px-4 py-2 text-sm transition-colors duration-180 ${
-              outcome.kind === "empty"
-                ? "bg-ink text-canvas font-medium hover:bg-ink-soft"
-                : "border border-hairline bg-canvas text-ink-soft hover:border-ink/25 hover:text-ink"
-            } disabled:opacity-40 disabled:cursor-not-allowed`}
+            className="rounded-md border border-hairline bg-canvas px-4 py-2 text-sm text-ink-soft transition-colors duration-180 hover:border-ink/25 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {atWindowMax ? `${MAX_WINDOW_DAYS} days max` : `Try ${nextWindow} days`}
           </button>
         )}
+        <button
+          onClick={onDismiss}
+          className="ml-auto text-xs text-ink-faint hover:text-ink transition-colors"
+        >
+          Dismiss
+        </button>
       </div>
     </div>
   );

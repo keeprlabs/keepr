@@ -77,18 +77,27 @@ export function Settings({
   }, []);
 
   // Scroll to a specific integration panel when caller (typically the
-  // RunOverlay "Fix in Settings" button) passed a focusKind. Runs once per
-  // mount — the panel's id anchor is scrolled into view after the first
-  // paint so the layout has settled.
+  // RunOverlay "Fix in Settings" button) passed a focusKind. Waits for
+  // layout via double-rAF — one frame for React commit, a second for the
+  // browser to lay out fonts/icons. More reliable than a fixed setTimeout
+  // across slow hardware.
   useEffect(() => {
     if (!focusKind) return;
     const id = `panel-${focusKind}`;
-    // Tiny timeout so the section is painted and measurable.
-    const t = setTimeout(() => {
-      const el = document.getElementById(id);
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 60);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    const frame1 = requestAnimationFrame(() => {
+      if (cancelled) return;
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        document
+          .getElementById(id)
+          ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame1);
+    };
   }, [focusKind]);
 
   // Auto-load gating: if the user has no prior selections for Slack/GitHub,
