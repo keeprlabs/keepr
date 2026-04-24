@@ -12,7 +12,7 @@
 // checklist — it's process UI meant for the running state). Otherwise the
 // existing running/done/error progression renders as before.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   IntegrationKind,
   PulseOutcome,
@@ -112,7 +112,12 @@ export function RunOverlay({
   const stageIndex = STAGES.indexOf(state.stage);
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-live="polite"
+      className="fixed inset-0 z-40 flex items-center justify-center"
+    >
       <div className="absolute inset-0 bg-canvas/80 backdrop-blur-[3px] rise" />
       <div className="sheet rise relative w-[min(520px,92vw)] px-9 py-8">
         {/* Logo + timer row */}
@@ -285,9 +290,18 @@ function OutcomeView({
   // to Settings but with no kind focus. On partial_failure with one broken
   // kind, focus that kind's panel.
   const singleBrokenKind = onlyBrokenKind(outcome);
+  const maxedLabel = `Already at the max ${MAX_WINDOW_DAYS}-day window.`;
+
+  // Move keyboard focus to the primary action once the outcome view
+  // mounts. Keyboard users arriving from a running → outcome transition
+  // should immediately land on the first meaningful affordance.
+  const primaryRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    primaryRef.current?.focus();
+  }, []);
 
   return (
-    <div aria-live="polite">
+    <div>
       <h2 className="display-serif-lg text-[28px] leading-[1.1] text-ink">
         {title}
       </h2>
@@ -306,11 +320,11 @@ function OutcomeView({
       <div className="mt-8 flex items-center gap-2">
         {outcome.kind === "empty" && showTryLonger && (
           <button
+            ref={primaryRef}
             onClick={() => !atWindowMax && onTryLongerWindow?.(nextWindow)}
             disabled={atWindowMax}
-            title={
-              atWindowMax ? `Already at the max ${MAX_WINDOW_DAYS}-day window.` : undefined
-            }
+            aria-label={atWindowMax ? maxedLabel : undefined}
+            title={atWindowMax ? maxedLabel : undefined}
             className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas transition-colors duration-180 hover:bg-ink-soft disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {atWindowMax ? `${MAX_WINDOW_DAYS} days max` : `Try ${nextWindow} days`}
@@ -326,6 +340,7 @@ function OutcomeView({
         )}
         {showFix && (
           <button
+            ref={primaryRef}
             onClick={() => onFixInSettings?.(singleBrokenKind)}
             className="rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas transition-colors duration-180 hover:bg-ink-soft"
           >
@@ -336,9 +351,8 @@ function OutcomeView({
           <button
             onClick={() => !atWindowMax && onTryLongerWindow?.(nextWindow)}
             disabled={atWindowMax}
-            title={
-              atWindowMax ? `Already at the max ${MAX_WINDOW_DAYS}-day window.` : undefined
-            }
+            aria-label={atWindowMax ? maxedLabel : undefined}
+            title={atWindowMax ? maxedLabel : undefined}
             className="rounded-md border border-hairline bg-canvas px-4 py-2 text-sm text-ink-soft transition-colors duration-180 hover:border-ink/25 hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {atWindowMax ? `${MAX_WINDOW_DAYS} days max` : `Try ${nextWindow} days`}

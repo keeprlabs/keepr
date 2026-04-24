@@ -72,6 +72,11 @@ export default function App() {
     targetMember?: TeamMember;
     startDetail: string;
   } | null>(null);
+  // Tracks the post-ready "linger" timeout so a new dispatch cancels any
+  // pending clear+navigate from the previous run. Otherwise a user who
+  // rapidly triggers a second pulse sees the new overlay, then 500ms
+  // later the stale timeout fires setRunState(null) and hides it.
+  const readyLingerRef = useRef<number | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const showArchivedRef = useRef(showArchived);
   showArchivedRef.current = showArchived;
@@ -197,10 +202,16 @@ export default function App() {
       daysBack: number;
       startDetail: string;
     }) => {
-      // Abort any previous in-flight run before starting a new one.
+      // Abort any previous in-flight run before starting a new one. Also
+      // cancel a pending post-ready linger timeout so a stale setRunState
+      // doesn't hide the newly-started run 500ms after its dispatch.
       runControllerRef.current?.abort();
       const controller = new AbortController();
       runControllerRef.current = controller;
+      if (readyLingerRef.current != null) {
+        window.clearTimeout(readyLingerRef.current);
+        readyLingerRef.current = null;
+      }
 
       // Remember args so "Try N days" can re-dispatch the same workflow
       // with a longer window. daysBack is NOT stashed — it's the only
@@ -229,7 +240,8 @@ export default function App() {
           // time, so the sidebar doesn't need to re-fetch on those paths.
           await refresh();
           setRunState({ stage: "done" });
-          setTimeout(() => {
+          readyLingerRef.current = window.setTimeout(() => {
+            readyLingerRef.current = null;
             setRunState(null);
             setView({ kind: "session", id: r.sessionId });
           }, 500);
@@ -263,18 +275,19 @@ export default function App() {
   }, []);
 
   // "Try N days" — re-dispatch the most recent workflow with a longer
-  // window. If somehow the ref is empty (shouldn't be — the button only
-  // renders after a run terminated with an outcome), fall back to a
-  // generic team pulse.
+  // window. The button only renders after a run terminated with an
+  // outcome, and runWithOverlay sets the ref on every dispatch. So this
+  // ref is expected to be populated whenever the callback fires; if not,
+  // something unusual happened (e.g. Fix-in-Settings cleared the ref,
+  // then a stale render called the callback) and dispatching a generic
+  // team_pulse would be the wrong workflow. Warn loudly and no-op.
   const handleTryLongerWindow = useCallback(
     (nextDaysBack: number) => {
       const last = lastRunArgsRef.current;
       if (!last) {
-        void runWithOverlay({
-          workflow: "team_pulse",
-          daysBack: nextDaysBack,
-          startDetail: "Starting…",
-        });
+        console.warn(
+          "[RunOverlay] Try-N-days fired with no cached dispatch; ignoring."
+        );
         return;
       }
       void runWithOverlay({

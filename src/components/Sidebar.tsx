@@ -7,6 +7,8 @@ import type { SessionRow, TeamMember } from "../lib/types";
 import { providerIcon } from "./primitives/SourceBadge";
 
 
+import type { IntegrationKind } from "../services/pulseOutcome";
+
 export type ViewKey =
   | { kind: "home" }
   | { kind: "session"; id: number }
@@ -21,7 +23,7 @@ export type ViewKey =
       /** When navigating from the RunOverlay "Fix in Settings" button with
        *  a single broken integration kind, scroll that panel into view on
        *  mount. */
-      focusKind?: "slack" | "github" | "jira" | "linear";
+      focusKind?: IntegrationKind;
     }
   | { kind: "onboarding" };
 

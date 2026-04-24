@@ -112,9 +112,9 @@ describe("RunOverlay — empty outcome", () => {
   it("#5 Adjust sources button fires onFixInSettings with no focus kind", () => {
     const { onFixInSettings } = mountOverlay(empty);
     fireEvent.click(screen.getByRole("button", { name: /Adjust sources/ }));
-    expect(onFixInSettings).toHaveBeenCalledTimes(1);
-    // Called with no args (the button passes nothing through).
-    expect(onFixInSettings.mock.calls[0]).toEqual([]);
+    // Called with no args — naked toHaveBeenCalledWith() is the Vitest
+    // idiom for "zero args", no need to reach into .mock.calls.
+    expect(onFixInSettings).toHaveBeenCalledWith();
   });
 
   it("#6 stage checklist is NOT in DOM", () => {
@@ -124,11 +124,14 @@ describe("RunOverlay — empty outcome", () => {
     expect(screen.queryByText(/^Writing$/)).toBeNull();
   });
 
-  it("#7 Try N days disabled at windowDays=90 with tooltip", () => {
+  it("#7 Try N days disabled at windowDays=90 with tooltip + aria-label", () => {
     mountOverlay({ ...empty, windowDays: 90 });
-    const btn = screen.getByRole("button", { name: /90 days max/ });
+    // aria-label takes precedence over visible text for the accessible name
+    // (A3). Both title (sighted hover) and aria-label (SR) carry the reason.
+    const btn = screen.getByRole("button", { name: /max 90-day/ });
     expect(btn).toBeDisabled();
     expect(btn.getAttribute("title")).toMatch(/max 90-day/);
+    expect(btn).toHaveTextContent("90 days max");
   });
 
   it("#8 doubles but caps at 90 — windowDays=60 → next=90", () => {
@@ -263,9 +266,12 @@ describe("RunOverlay — legacy error path (no-sources-configured)", () => {
       />
     );
     expect(screen.getByText(/Something went sideways/)).toBeInTheDocument();
-    // Error text appears twice (top detail + bottom bullet). Use getAllByText.
+    // Error text appears twice: the top "Error: …" line and the bottom
+    // error-bullet row with the truncated 80-char slice. Contract is two
+    // surfaces — don't loosen to "at least one" or a copy drift could
+    // silently hide one of them.
     const matches = screen.getAllByText(/No data sources selected/);
-    expect(matches.length).toBeGreaterThanOrEqual(1);
+    expect(matches).toHaveLength(2);
   });
 
   it("#2 Dismiss button fires onDismiss on legacy error", () => {
@@ -278,6 +284,73 @@ describe("RunOverlay — legacy error path (no-sources-configured)", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: /Dismiss/ }));
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("RunOverlay — robustness & a11y", () => {
+  const empty: PulseOutcome = {
+    kind: "empty",
+    windowDays: 14,
+    sources: [okEmpty("github", 5, "no PRs in window")],
+  };
+  const partial: PulseOutcome = {
+    kind: "partial_failure",
+    windowDays: 14,
+    sources: [
+      errSource("slack", 9, 9, "bot not in channel — invite @Keepr to each"),
+      okEmpty("github", 5, "no PRs in window"),
+    ],
+  };
+  const total: PulseOutcome = {
+    kind: "total_failure",
+    windowDays: 14,
+    sources: [errSource("slack", 9, 9, "token rejected", "invalid_auth")],
+  };
+
+  it("#1 renders without onTryLongerWindow callback (click is a safe no-op)", () => {
+    render(
+      <RunOverlay
+        state={runState(empty)}
+        onDismiss={() => {}}
+        // onTryLongerWindow intentionally omitted
+        onFixInSettings={() => {}}
+      />
+    );
+    const btn = screen.getByRole("button", { name: /Try 28 days/ });
+    expect(() => fireEvent.click(btn)).not.toThrow();
+  });
+
+  it("#2 INVERSE total_failure has NO warning-labeled rows (all are danger)", () => {
+    mountOverlay(total);
+    expect(screen.queryByLabelText(/warning/i)).toBeNull();
+    expect(screen.getByLabelText(/error/i)).toBeInTheDocument();
+  });
+
+  it("#3 outer dialog has aria-live so transitions are announced", () => {
+    mountOverlay(empty);
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-live", "polite");
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+  });
+
+  it("#4 primary action receives focus on outcome mount (empty)", () => {
+    mountOverlay(empty);
+    const primary = screen.getByRole("button", { name: /Try 28 days/ });
+    expect(document.activeElement).toBe(primary);
+  });
+
+  it("#5 primary action receives focus on outcome mount (partial → Fix in Settings)", () => {
+    mountOverlay(partial);
+    const primary = screen.getByRole("button", { name: /Fix in Settings/ });
+    expect(document.activeElement).toBe(primary);
+  });
+
+  it("#6 disabled Try N days has aria-label (SR-friendly), not just title", () => {
+    mountOverlay({ ...empty, windowDays: 90 });
+    const btn = screen.getByRole("button", { name: /max 90-day/ });
+    expect(btn).toBeDisabled();
+    // Name comes from aria-label, not the visible text.
+    expect(btn.getAttribute("aria-label")).toMatch(/max 90-day/);
   });
 });
 

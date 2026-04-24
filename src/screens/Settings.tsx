@@ -23,13 +23,14 @@ import type { AppConfig, FeatureFlags, TeamMember } from "../lib/types";
 import { DEFAULT_CONFIG, DEFAULT_FEATURE_FLAGS } from "../lib/types";
 import { GitHubIcon, SlackIcon, JiraIcon, LinearIcon } from "../components/primitives/SourceBadge";
 import { ChipGrid, SourceChip } from "../components/onboarding/primitives";
+import type { IntegrationKind } from "../services/pulseOutcome";
 
 export function Settings({
   focusKind,
 }: {
   /** When rendered via the RunOverlay "Fix in Settings" button with a single
    *  broken integration kind, scroll that panel into view on mount. */
-  focusKind?: "slack" | "github" | "jira" | "linear";
+  focusKind?: IntegrationKind;
 } = {}) {
   const [cfg, setCfg] = useState<AppConfig>(DEFAULT_CONFIG);
   const [members, setMembers] = useState<TeamMember[]>([]);
