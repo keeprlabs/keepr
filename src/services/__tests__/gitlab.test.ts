@@ -6,13 +6,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---- Mocks ---------------------------------------------------------------
 
-const tauriFetch = vi.fn();
+// Typed as loose rest-arg functions. Without explicit signatures, Vitest
+// infers `vi.fn()` as `() => unknown` which makes `mock.calls[0]` empty-tuple
+// and turns spread proxies (`(...a) => mock(...a)`) into TS2556 errors.
+const tauriFetch = vi.fn<(...args: any[]) => any>();
 vi.mock("@tauri-apps/plugin-http", () => ({
   fetch: (...args: unknown[]) => tauriFetch(...args),
 }));
 
-const getSecret = vi.fn();
-const setSecret = vi.fn(async () => {});
+const getSecret = vi.fn<(...args: any[]) => any>();
+const setSecret = vi.fn<(...args: any[]) => Promise<void>>(async () => {});
 vi.mock("../secrets", () => ({
   SECRET_KEYS: {
     gitlab: "gitlab.token",
@@ -33,9 +36,9 @@ vi.mock("../secrets", () => ({
   setSecret: (...a: unknown[]) => setSecret(...a),
 }));
 
-const getConfig = vi.fn();
-const getFetchCursor = vi.fn();
-const setFetchCursor = vi.fn(async () => {});
+const getConfig = vi.fn<(...args: any[]) => any>();
+const getFetchCursor = vi.fn<(...args: any[]) => any>();
+const setFetchCursor = vi.fn<(...args: any[]) => Promise<void>>(async () => {});
 vi.mock("../db", () => ({
   getConfig: (...a: unknown[]) => getConfig(...a),
   getFetchCursor: (...a: unknown[]) => getFetchCursor(...a),
