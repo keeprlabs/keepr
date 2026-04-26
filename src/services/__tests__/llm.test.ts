@@ -44,9 +44,13 @@ describe("LLMProvider categorization", () => {
     expect(getProvider("codex")).toBe(PROVIDERS.codex);
   });
 
-  it("codex defaults to gpt-5 / gpt-5-mini", () => {
-    expect(PROVIDERS.codex.defaultSynthesisModel).toBe("gpt-5");
-    expect(PROVIDERS.codex.defaultClassifierModel).toBe("gpt-5-mini");
+  it("codex defaults to the only model pair that works on BOTH ChatGPT-account AND API-key auth", () => {
+    // gpt-5.5 only works on ChatGPT auth (and even there is tier-dependent);
+    // gpt-5 / gpt-5-mini aren't valid identifiers at all. gpt-5.4 / gpt-5.4-mini
+    // is the safe-everywhere pair as of Codex CLI v0.125. See llm.ts for the
+    // long comment explaining why.
+    expect(PROVIDERS.codex.defaultSynthesisModel).toBe("gpt-5.4");
+    expect(PROVIDERS.codex.defaultClassifierModel).toBe("gpt-5.4-mini");
   });
 });
 

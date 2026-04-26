@@ -54,7 +54,7 @@ const CARDS: Record<LLMProviderId, { blurb: string; badge?: string }> = {
   },
   codex: {
     badge: "No API key",
-    blurb: "Uses your installed Codex CLI. No separate API key needed.",
+    blurb: "Uses your installed Codex CLI. Defaults work for both ChatGPT-account and API-key auth.",
   },
 };
 

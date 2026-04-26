@@ -120,11 +120,21 @@ import {
   _peekCodexProbeCache,
 } from "../llm";
 
-beforeEach(() => {
+beforeEach(async () => {
   fakeFiles.clear();
   invalidateCodexProbe();
   FakeCommand.plan = {};
   FakeCommand.lastInstance = null;
+  // Reset the per-call mockResolvedValueOnce queue on readTextFile —
+  // otherwise an aborted test that seeded a value but never reached the
+  // read leaves stale state for the next test.
+  const fs = await import("@tauri-apps/plugin-fs");
+  (fs.readTextFile as any).mockReset();
+  (fs.readTextFile as any).mockImplementation(async (path: string) => {
+    const v = fakeFiles.get(path);
+    if (v === undefined) throw new Error("ENOENT");
+    return v;
+  });
 });
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -382,22 +392,68 @@ describe("runCli settle discipline [regression: double-settle bug]", () => {
 });
 
 describe("pickUsageFromCodexEvents", () => {
-  it("prefers task_complete events over earlier usage events", async () => {
+  it("parses real Codex CLI v0.125 output (turn.started → item.completed → turn.completed)", async () => {
+    // This is a near-verbatim capture of `codex exec --json` output against
+    // the live CLI on 2026-04-26. Locks in the actual shape so a regression
+    // in the parser would surface in CI instead of as silent zero-token
+    // counts in production. Note: top-level `usage` on `turn.completed`,
+    // not nested under `msg`/`payload`. Includes the bonus fields
+    // (cached_input_tokens, reasoning_output_tokens) that the parser
+    // currently ignores but a future cost-analytics pass might surface.
+    FakeCommand.plan = {
+      stdout: [
+        '{"type":"thread.started","thread_id":"019dcb01-ca4b-75d1-902c-3ad37ca3698b"}\n',
+        '{"type":"turn.started"}\n',
+        '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}\n',
+        '{"type":"turn.completed","usage":{"input_tokens":11541,"cached_input_tokens":10112,"output_tokens":18,"reasoning_output_tokens":11}}\n',
+      ],
+      exitCode: 0,
+    };
+    const fs = await import("@tauri-apps/plugin-fs");
+    (fs.readTextFile as any).mockResolvedValueOnce("ok");
+    const r = await PROVIDERS.codex.complete({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "Reply with just: ok" }],
+    });
+    expect(r.text).toBe("ok");
+    expect(r.input_tokens).toBe(11541);
+    expect(r.output_tokens).toBe(18);
+  });
+
+  it("prefers turn.completed events over earlier usage events", async () => {
     FakeCommand.plan = {
       stdout: [
         '{"type":"agent_message","usage":{"input_tokens":1,"output_tokens":1}}\n',
-        '{"type":"task_complete","usage":{"input_tokens":99,"output_tokens":33}}\n',
+        '{"type":"turn.completed","usage":{"input_tokens":99,"output_tokens":33}}\n',
       ],
       exitCode: 0,
     };
     const fs = await import("@tauri-apps/plugin-fs");
     (fs.readTextFile as any).mockResolvedValueOnce("done");
     const r = await PROVIDERS.codex.complete({
-      model: "gpt-5",
+      model: "gpt-5.4",
       messages: [{ role: "user", content: "x" }],
     });
     expect(r.input_tokens).toBe(99);
     expect(r.output_tokens).toBe(33);
+  });
+
+  it("also matches a hypothetical task_complete event (forward-compat for CLI renames)", async () => {
+    FakeCommand.plan = {
+      stdout: [
+        '{"type":"agent_message","usage":{"input_tokens":1,"output_tokens":1}}\n',
+        '{"type":"task_complete","usage":{"input_tokens":42,"output_tokens":7}}\n',
+      ],
+      exitCode: 0,
+    };
+    const fs = await import("@tauri-apps/plugin-fs");
+    (fs.readTextFile as any).mockResolvedValueOnce("done");
+    const r = await PROVIDERS.codex.complete({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "x" }],
+    });
+    expect(r.input_tokens).toBe(42);
+    expect(r.output_tokens).toBe(7);
   });
 
   it("doesn't get fooled by 0 ?? 42 — picks the first positive value", async () => {

@@ -609,7 +609,11 @@ function pickUsageFromCodexEvents(lines: string[]): CodexUsage | null {
           const usage = { input_tokens: inTok, output_tokens: outTok };
           lastUsage = usage;
           const type = evt?.type ?? evt?.msg?.type ?? evt?.event ?? "";
-          if (typeof type === "string" && /task[_-]?complete/i.test(type)) {
+          // Codex CLI v0.125 emits `turn.completed`. Older drafts of this
+          // parser only matched `task_complete` from a hypothetical event
+          // shape; both patterns kept here as belt-and-suspenders against
+          // future renames. Verified against real CLI output 2026-04-26.
+          if (typeof type === "string" && /(turn|task)[._-]?complete[d]?/i.test(type)) {
             lastTaskCompleteUsage = usage;
           }
         }
@@ -631,8 +635,15 @@ const codex: LLMProvider = {
     installUrl: "github.com/openai/codex",
     loginCmd: "codex login",
   },
-  defaultSynthesisModel: "gpt-5",
-  defaultClassifierModel: "gpt-5-mini",
+  // Defaults pinned to the only model pair that works on BOTH ChatGPT-account
+  // auth AND API-key auth as of Codex CLI v0.125.0. The "gpt-5.5" model only
+  // works on ChatGPT auth (and even there, tier-dependent — multiple GitHub
+  // issues report rejection on Free/Plus); "gpt-5" / "gpt-5-mini" aren't
+  // valid identifiers at all (they're "gpt-5.4", "gpt-5.4-mini", etc.).
+  // Power users override these in Settings if their auth mode allows more.
+  // See: developers.openai.com/codex/models for the per-auth allowlist.
+  defaultSynthesisModel: "gpt-5.4",
+  defaultClassifierModel: "gpt-5.4-mini",
 
   async complete(opts) {
     const ws = await makeCodexWorkspace();

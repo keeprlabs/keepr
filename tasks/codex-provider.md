@@ -420,8 +420,8 @@ E2E harness today.
 |---|----------|--------|
 | 1 | Picker layout for N providers | Categorized (X2: thin dividers + small-caps labels) |
 | 2 | Settings switcher layout | Same categorization as onboarding |
-| 3 | Default synthesis model | `gpt-5` |
-| 4 | Default classifier model | `gpt-5-mini` |
+| 3 | Default synthesis model | `gpt-5.4` (works on both ChatGPT-account and API-key auth — verified against codex v0.125) |
+| 4 | Default classifier model | `gpt-5.4-mini` (same auth-mode constraint) |
 | 5 | Pre-empt the `codex login` step in idle copy | No — only show inline help after failed detect |
 | 6 | Click-to-copy for `codex login` | Yes — in the not-signed-in error state |
 | 7 | Settings detection UX | Passive status `Codex CLI: detected ✓` on panel load (not a button) |
