@@ -203,7 +203,13 @@ describe("codex.complete", () => {
     ).rejects.toThrow(/some auth error/);
   });
 
-  it("passes -s read-only and --ask-for-approval never to harden the spawn", async () => {
+  it("passes the hardening flags codex exec actually accepts (-s read-only, --skip-git-repo-check, --ephemeral, --json)", async () => {
+    // codex v0.125 doesn't have `--ask-for-approval` on the exec subcommand
+    // (exec is non-interactive by definition). It DOES require
+    // `--skip-git-repo-check` when running outside a git repo, which our
+    // hermetic tempdir is not. Regression: an earlier draft passed
+    // `--ask-for-approval never` and the spawn failed at runtime with
+    // "unexpected argument".
     FakeCommand.plan = { stdout: [], exitCode: 0 };
     const fs = await import("@tauri-apps/plugin-fs");
     (fs.readTextFile as any).mockResolvedValueOnce("ok");
@@ -211,9 +217,11 @@ describe("codex.complete", () => {
     const args = FakeCommand.lastInstance?.args || [];
     expect(args).toContain("-s");
     expect(args[args.indexOf("-s") + 1]).toBe("read-only");
-    expect(args).toContain("--ask-for-approval");
-    expect(args[args.indexOf("--ask-for-approval") + 1]).toBe("never");
+    expect(args).toContain("--skip-git-repo-check");
+    expect(args).toContain("--ephemeral");
     expect(args).toContain("--json");
+    // Anti-regression: do NOT include the flag that doesn't exist.
+    expect(args).not.toContain("--ask-for-approval");
   });
 
   it("aborts the spawn when opts.signal fires", async () => {

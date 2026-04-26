@@ -126,19 +126,26 @@ A new `codex: LLMProvider` object alongside `claudeCode`:
 ```ts
 const args = [
   "exec",
-  "-C", safeCwd,                  // hermetic cwd (tempdir)
-  "-s", "read-only",              // sandbox: no file writes
-  "--ask-for-approval", "never",  // no interactive stalls
-  "--json",                       // newline-delimited event stream (gives token usage)
+  "-C", safeCwd,              // hermetic cwd (tempdir)
+  "-s", "read-only",          // sandbox: no file writes
+  "--skip-git-repo-check",    // tempdir isn't a git repo; codex would refuse otherwise
+  "--ephemeral",              // don't persist a rollout file in ~/.codex/sessions/
+  "--json",                   // newline-delimited event stream (gives token usage)
   "--output-last-message", outFile,
   "-m", opts.model,
+  "--",                       // separator so a prompt starting with `-` isn't parsed as a flag
   prompt,
 ];
 ```
 
-`-s read-only` and `--ask-for-approval never` together prevent the codex
-agent from trying to apply patches or stall waiting for an approval prompt
-that has no UI to reach. Hardcoded; not user-configurable.
+`-s read-only` enforces no file writes by the agent. `codex exec` is
+non-interactive by definition (no `--ask-for-approval` flag exists on the
+subcommand — verified against codex CLI v0.125.0; we omit it deliberately,
+and the spawn-flags test asserts it stays absent as a regression guard).
+`--skip-git-repo-check` is mandatory because our hermetic tempdir isn't a
+git repo and codex refuses to run outside one by default. `--ephemeral`
+keeps `~/.codex/sessions/` clean — every Keepr synthesis would otherwise
+leave a rollout file behind.
 
 **Output parsing:**
 

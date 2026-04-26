@@ -648,7 +648,13 @@ const codex: LLMProvider = {
         "exec",
         "-C", ws.cwd,
         "-s", "read-only",
-        "--ask-for-approval", "never",
+        // `codex exec` requires a git repo by default; our hermetic tempdir
+        // isn't one, so this flag is mandatory or the spawn fails before
+        // the model is even contacted.
+        "--skip-git-repo-check",
+        // Don't persist a rollout file in ~/.codex/sessions/ — every Keepr
+        // synthesis call would leave one behind.
+        "--ephemeral",
         "--json",
         "--output-last-message", ws.outFile,
         "-m", opts.model,
@@ -787,7 +793,8 @@ export async function probeCodex(force = false): Promise<ProbeResult> {
         "exec",
         "-C", ws.cwd,
         "-s", "read-only",
-        "--ask-for-approval", "never",
+        "--skip-git-repo-check",
+        "--ephemeral",
         "--json",
         "--output-last-message", ws.outFile,
         "--",
