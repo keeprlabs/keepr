@@ -98,21 +98,28 @@ Eight places need touching. Listed in dependency order.
 
 ### 1.5. Tauri shell capability
 
-- `src-tauri/capabilities/default.json`: extend the `shell:allow-execute`
-  allowlist (currently `[{ "name": "claude", "cmd": "claude", "args": true }]`)
-  with a `codex` entry. Without this, `Command.create("codex", ...)` throws
-  a Tauri permission error at runtime — the Rust shell layer denies any
-  process not in the allowlist.
+- `src-tauri/capabilities/default.json`: replace `shell:allow-execute`
+  with `shell:allow-spawn` (same allowlist) and add `shell:allow-kill`.
+  Reason: `runCli` uses `cmd.spawn()` (not `cmd.execute()`) so the abort
+  path can call `child.kill()` to honor `opts.signal`. Tauri permits
+  these as separate identifiers — `shell:allow-execute` doesn't permit
+  `.spawn()`, and without `shell:allow-kill` the abort handler silently
+  fails to kill the child.
 
 ```json
 {
-  "identifier": "shell:allow-execute",
+  "identifier": "shell:allow-spawn",
   "allow": [
     { "name": "claude", "cmd": "claude", "args": true },
     { "name": "codex",  "cmd": "codex",  "args": true }
   ]
-}
+},
+"shell:allow-kill"
 ```
+
+`allow-kill` is global (no per-binary filter), but the trust surface is
+already gated by `allow-spawn` — you can only kill processes you
+spawned, and you can only spawn binaries in the spawn allowlist.
 
 ### 2. Provider implementation (`src/services/llm.ts`)
 

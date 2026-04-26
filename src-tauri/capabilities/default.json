@@ -14,12 +14,13 @@
     "core:menu:default",
     "shell:allow-open",
     {
-      "identifier": "shell:allow-execute",
+      "identifier": "shell:allow-spawn",
       "allow": [
         { "name": "claude", "cmd": "claude", "args": true },
         { "name": "codex", "cmd": "codex", "args": true }
       ]
     },
+    "shell:allow-kill",
     "opener:default",
     "opener:allow-open-url",
     {
