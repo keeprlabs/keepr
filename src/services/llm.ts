@@ -532,11 +532,11 @@ const claudeCode: LLMProvider = {
   },
 
   async test() {
-    const args = ["--print", "--model", "haiku", "Reply with just: ok"];
-    const result = await runCli("claude", args, { env: CLAUDE_SPAWN_ENV });
-    if (result.code !== 0) {
-      const msg = result.stderr || result.stdout || "exit code " + result.code;
-      throw new Error(`Claude Code not available: ${msg.slice(0, 300)}`);
+    // The probe IS the test. Force a fresh probe so a cached failure from a
+    // prior session doesn't mask a now-working state.
+    const probe = await probeClaudeCode(true);
+    if (!probe.ok) {
+      throw new Error(`Claude Code not available (${probe.reason}): ${probe.raw.slice(0, 300)}`);
     }
     return true;
   },
@@ -713,10 +713,60 @@ const codex: LLMProvider = {
   },
 };
 
-// ---- Codex probe (shared module-level cache) ------------------------------
+// ---- CLI probe (shared module-level cache) --------------------------------
 
+let _claudeProbeCache: ProbeResult | null = null;
+let _claudeProbeInFlight: Promise<ProbeResult> | null = null;
 let _codexProbeCache: ProbeResult | null = null;
 let _codexProbeInFlight: Promise<ProbeResult> | null = null;
+
+/** Detect whether `claude --print` will succeed in this app session.
+ *  Symmetric with probeCodex — same caching, same in-flight dedup, same
+ *  cache-poisoning fix. Lets StepLLM and Settings render <CliProviderPanel />
+ *  for both CLI providers with one consistent state shape. */
+export async function probeClaudeCode(force = false): Promise<ProbeResult> {
+  if (!force && _claudeProbeCache) return _claudeProbeCache;
+  if (_claudeProbeInFlight) return _claudeProbeInFlight;
+
+  const promise = (async (): Promise<ProbeResult> => {
+    const args = ["--print", "--model", "haiku", "Reply with just: ok"];
+    let result: RunCliResult;
+    try {
+      result = await runCli("claude", args, { env: CLAUDE_SPAWN_ENV });
+    } catch (e: any) {
+      const r: ProbeResult = classifyCliError(String(e?.message || e), "claude");
+      _claudeProbeCache = r;
+      return r;
+    }
+    if (result.code === 0) {
+      const r: ProbeResult = { ok: true };
+      _claudeProbeCache = r;
+      return r;
+    }
+    const raw = result.stderr || result.stdout || `exit code ${result.code}`;
+    const r = classifyCliError(raw, "claude");
+    _claudeProbeCache = r;
+    return r;
+  })();
+
+  _claudeProbeInFlight = promise;
+  promise.finally(() => {
+    _claudeProbeInFlight = null;
+  }).catch(() => {});
+
+  return promise;
+}
+
+/** Wipe the cached Claude Code probe result. Call after the user reports
+ *  they ran `claude login` so the next probeClaudeCode() actually re-checks. */
+export function invalidateClaudeProbe(): void {
+  _claudeProbeCache = null;
+}
+
+/** Test-only: read the cache without triggering a probe. */
+export function _peekClaudeProbeCache(): ProbeResult | null {
+  return _claudeProbeCache;
+}
 
 /** Detect whether `codex exec` will succeed in this app session. Cached so
  *  StepLLM (Detect button) and Settings (passive status) share one round-trip.

@@ -54,18 +54,50 @@ vi.mock("../../services/secrets", () => ({
   setSecret: vi.fn(async () => {}),
 }));
 
-vi.mock("../../services/llm", () => ({
-  getProvider: vi.fn(() => ({
-    id: "anthropic",
-    label: "Anthropic",
+const llmMocks = vi.hoisted(() => ({
+  probeCodex: vi.fn(async () => ({ ok: true } as { ok: true })),
+  probeClaudeCode: vi.fn(async () => ({ ok: true } as { ok: true })),
+  invalidateCodexProbe: vi.fn(),
+  invalidateClaudeProbe: vi.fn(),
+}));
+
+vi.mock("../../services/llm", () => {
+  const provider = (id: string, category: string, extras: Record<string, unknown> = {}) => ({
+    id,
+    category,
+    label: id,
+    keyUrl: id === "anthropic" ? "https://platform.claude.com/settings/keys" : "",
     defaultSynthesisModel: "x",
     defaultClassifierModel: "y",
-    requiresKey: true,
-    keyPlaceholder: "",
-    keyHelp: "",
-  })),
-  setCustomConfig: vi.fn(),
-}));
+    ...extras,
+  });
+  const PROVIDERS: Record<string, any> = {
+    anthropic: provider("anthropic", "hosted"),
+    openai: provider("openai", "hosted"),
+    openrouter: provider("openrouter", "hosted"),
+    custom: provider("custom", "hosted"),
+    "claude-code": provider("claude-code", "cli", {
+      cli: { installCmd: "npm install -g @anthropic-ai/claude-code", loginCmd: "claude login" },
+    }),
+    codex: provider("codex", "cli", {
+      cli: { installCmd: "npm install -g @openai/codex", loginCmd: "codex login" },
+    }),
+  };
+  return {
+    getProvider: vi.fn((id: string) => PROVIDERS[id] || PROVIDERS.anthropic),
+    setCustomConfig: vi.fn(),
+    providersByCategory: () => ({
+      hosted: [PROVIDERS.anthropic, PROVIDERS.openai, PROVIDERS.openrouter, PROVIDERS.custom],
+      cli: [PROVIDERS["claude-code"], PROVIDERS.codex],
+      self_hosted: [],
+    }),
+    probeCodex: llmMocks.probeCodex,
+    probeClaudeCode: llmMocks.probeClaudeCode,
+    invalidateCodexProbe: llmMocks.invalidateCodexProbe,
+    invalidateClaudeProbe: llmMocks.invalidateClaudeProbe,
+    friendlyProviderError: (e: any) => e?.message || "Test call failed.",
+  };
+});
 
 vi.mock("../../services/fsio", () => ({
   defaultMemoryDir: vi.fn(async () => "/tmp/mem"),
@@ -100,6 +132,10 @@ beforeEach(() => {
   listUserRepos.mockReset();
   listPublicChannels.mockResolvedValue([]);
   listUserRepos.mockResolvedValue([]);
+  llmMocks.probeCodex.mockClear();
+  llmMocks.probeClaudeCode.mockClear();
+  llmMocks.probeCodex.mockResolvedValue({ ok: true } as { ok: true });
+  llmMocks.probeClaudeCode.mockResolvedValue({ ok: true } as { ok: true });
 });
 
 // ---- Tests ---------------------------------------------------------------
@@ -147,5 +183,54 @@ describe("Settings — auto-load gating", () => {
     // user clicks (the Reload relabel triggers AFTER a successful fetch).
     await utils!.findByText(/Load public channels/);
     await utils!.findByText(/Load my repos/);
+  });
+});
+
+describe("Settings — CLI provider lazy probe [lane E billing-blast-radius]", () => {
+  // The whole reason for the lazy probe: a user who opens Settings to fix
+  // their Slack token must NOT trigger a silent OpenAI/Anthropic billing
+  // call just because the LLM panel is on the same screen. Probes ONLY fire
+  // when the active provider is a CLI tool.
+
+  it("[CRITICAL] mount with anthropic active — NO codex or claude-code probe fires", async () => {
+    // Anthropic uses an API key, so neither CLI probe should run. This is
+    // the regression test for the billing-blast-radius decision.
+    fakeConfig = { ...DEFAULT_CONFIG, llm_provider: "anthropic" };
+    await act(async () => {
+      render(<Settings />);
+    });
+    // Drain any pending effects.
+    await waitFor(() => expect(listPublicChannels).toHaveBeenCalled());
+    expect(llmMocks.probeCodex).not.toHaveBeenCalled();
+    expect(llmMocks.probeClaudeCode).not.toHaveBeenCalled();
+  });
+
+  it("mount with codex active — probeCodex fires once, probeClaudeCode does NOT", async () => {
+    fakeConfig = { ...DEFAULT_CONFIG, llm_provider: "codex" };
+    await act(async () => {
+      render(<Settings />);
+    });
+    await waitFor(() => expect(llmMocks.probeCodex).toHaveBeenCalledTimes(1));
+    expect(llmMocks.probeClaudeCode).not.toHaveBeenCalled();
+  });
+
+  it("mount with claude-code active — probeClaudeCode fires once, probeCodex does NOT", async () => {
+    fakeConfig = { ...DEFAULT_CONFIG, llm_provider: "claude-code" };
+    await act(async () => {
+      render(<Settings />);
+    });
+    await waitFor(() => expect(llmMocks.probeClaudeCode).toHaveBeenCalledTimes(1));
+    expect(llmMocks.probeCodex).not.toHaveBeenCalled();
+  });
+
+  it("the Local CLI category divider renders inside the Model panel", async () => {
+    fakeConfig = { ...DEFAULT_CONFIG, llm_provider: "anthropic" };
+    let utils: ReturnType<typeof render> | null = null;
+    await act(async () => {
+      utils = render(<Settings />);
+    });
+    await waitFor(() => expect(utils!.getByText("Local CLI")).toBeDefined());
+    // self_hosted has no providers in v1, so its divider should be absent.
+    expect(utils!.queryByText("Self-hosted")).toBeNull();
   });
 });

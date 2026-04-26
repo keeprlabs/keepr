@@ -73,9 +73,20 @@ export function CliProviderPanel({
         <NotSignedInHelp provider={provider} onRetry={onRetry} />
       )}
       {probe.reason === "other" && (
-        <p className="text-xs leading-snug text-ink">
-          {otherErrorMessage || "Detection failed. Check your network and try again."}
-        </p>
+        <div>
+          <p className="text-xs leading-snug text-ink">
+            {otherErrorMessage || "Detection failed. Check your network and try again."}
+          </p>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-3 inline-flex items-center gap-2 rounded-md border border-hairline bg-canvas px-3 py-1.5 text-xs text-ink-soft transition-colors duration-180 hover:border-ink/20 hover:text-ink"
+            >
+              Detect again
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
