@@ -14,9 +14,14 @@
     "core:menu:default",
     "shell:allow-open",
     {
-      "identifier": "shell:allow-execute",
-      "allow": [{ "name": "claude", "cmd": "claude", "args": true }]
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        { "name": "claude", "cmd": "claude", "args": true },
+        { "name": "codex", "cmd": "codex", "args": true },
+        { "name": "sh", "cmd": "sh", "args": true }
+      ]
     },
+    "shell:allow-kill",
     "opener:default",
     "opener:allow-open-url",
     {
@@ -36,6 +41,10 @@
     "fs:allow-document-write-recursive",
     "fs:allow-app-read-recursive",
     "fs:allow-app-write-recursive",
+    "fs:allow-temp-read-recursive",
+    "fs:allow-temp-write-recursive",
+    "fs:allow-mkdir",
+    "fs:allow-remove",
     {
       "identifier": "http:default",
       "allow": [

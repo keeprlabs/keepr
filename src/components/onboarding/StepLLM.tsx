@@ -1,4 +1,5 @@
-// LLM provider step — pick a provider, paste a key, dignified test call.
+// LLM provider step — pick a provider, paste a key (or detect a CLI),
+// dignified test call.
 
 import { useEffect, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
@@ -12,38 +13,61 @@ import {
   StepFooter,
   Title,
 } from "./primitives";
+import { CategoryDivider } from "../primitives/CategoryDivider";
+import { CliProviderPanel } from "../primitives/CliProviderPanel";
 import { SECRET_KEYS, getSecret, setSecret } from "../../services/secrets";
-import { getProvider, setCustomConfig, type LLMProviderId } from "../../services/llm";
+import {
+  friendlyProviderError,
+  getProvider,
+  invalidateClaudeProbe,
+  invalidateCodexProbe,
+  probeClaudeCode,
+  probeCodex,
+  providersByCategory,
+  setCustomConfig,
+  type LLMCategory,
+  type LLMProvider,
+  type LLMProviderId,
+  type ProbeResult,
+} from "../../services/llm";
 import { getConfig, setConfig, upsertIntegration } from "../../services/db";
 
-const PROVIDERS: Array<{
-  id: LLMProviderId;
-  blurb: string;
-  badge?: string;
-}> = [
-  {
-    id: "anthropic",
+/** Per-provider blurb + badge for the picker card. The provider runtime
+ *  (interface, complete/test, category, cli metadata) lives in services/llm. */
+const CARDS: Record<LLMProviderId, { blurb: string; badge?: string }> = {
+  anthropic: {
     badge: "Recommended",
     blurb: "Claude Sonnet for synthesis, Haiku for the first-pass summaries.",
   },
-  {
-    id: "openai",
+  openai: {
     blurb: "gpt-4o for synthesis, gpt-4o-mini for the classifier step.",
   },
-  {
-    id: "openrouter",
+  openrouter: {
     blurb: "Gateway — any model, one key. Useful behind a corporate egress.",
   },
-  {
-    id: "custom",
+  custom: {
     blurb: "Any OpenAI-compatible endpoint — Ollama, vLLM, LM Studio, etc.",
   },
-  {
-    id: "claude-code",
+  "claude-code": {
     badge: "No API key",
     blurb: "Uses your installed Claude Code CLI. No separate API key needed.",
   },
-];
+  codex: {
+    badge: "No API key",
+    blurb: "Uses your installed Codex CLI. Defaults work for both ChatGPT-account and API-key auth.",
+  },
+};
+
+/** Render order for category sections. Empty categories don't render their
+ *  divider (relevant today because self_hosted is empty until Qwen Local lands). */
+const CATEGORY_ORDER: LLMCategory[] = ["hosted", "cli", "self_hosted"];
+const CATEGORY_LABELS: Record<LLMCategory, string> = {
+  hosted: "Hosted",
+  cli: "Local CLI",
+  self_hosted: "Self-hosted",
+};
+
+const CLI_PROVIDERS = new Set<LLMProviderId>(["claude-code", "codex"]);
 
 export function StepLLM({ onNext }: { onNext: () => void }) {
   const [provider, setProvider] = useState<LLMProviderId>("anthropic");
@@ -53,6 +77,9 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customSynthModel, setCustomSynthModel] = useState("");
   const [customClassModel, setCustomClassModel] = useState("");
+  // Probe result for the active CLI provider. Reset to null on provider
+  // change so the panel returns to its idle "No API key required" copy.
+  const [probe, setProbe] = useState<ProbeResult | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -66,10 +93,11 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
     })();
   }, []);
 
-  // When provider changes, reload any key already stored for that provider.
+  // When provider changes, reload any key already stored for that provider
+  // and clear the probe (the new provider hasn't been detected yet).
   useEffect(() => {
     (async () => {
-      if (provider === "claude-code") {
+      if (CLI_PROVIDERS.has(provider)) {
         setKey("");
       } else {
         const existing = await getSecret(SECRET_KEYS[provider]);
@@ -77,19 +105,50 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
       }
       setState("idle");
       setError("");
+      setProbe(null);
     })();
   }, [provider]);
 
   const p = getProvider(provider);
+  const groups = providersByCategory();
 
   const test = async () => {
     setState("testing");
     setError("");
     const trimmed = key.trim();
 
-    if (provider === "claude-code") {
-      // No key or config needed — just detect the CLI.
-    } else if (provider === "custom") {
+    if (CLI_PROVIDERS.has(provider)) {
+      // CLI providers: call the structured probe directly so we can render
+      // a typed ProbeResult in the panel (install vs login vs other).
+      // force=true bypasses the cached failure from a prior attempt.
+      const fn = provider === "codex" ? probeCodex : probeClaudeCode;
+      const result = await fn(true);
+      setProbe(result);
+      if (!result.ok) {
+        setState("err");
+        // Inline help is rendered by CliProviderPanel; the StatusLine just
+        // names the failure mode briefly.
+        const reasonCopy =
+          result.reason === "not_installed"
+            ? `${p.label} CLI not installed.`
+            : result.reason === "not_signed_in"
+            ? `${p.label} installed but not signed in.`
+            : friendlyProviderError(new Error(result.raw), provider);
+        setError(reasonCopy);
+        return;
+      }
+      // Probe succeeded — persist and record the integration.
+      await upsertIntegration(provider, {});
+      await setConfig({
+        llm_provider: provider,
+        synthesis_model: p.defaultSynthesisModel,
+        classifier_model: p.defaultClassifierModel,
+      });
+      setState("ok");
+      return;
+    }
+
+    if (provider === "custom") {
       if (!customBaseUrl.trim()) {
         setState("err");
         setError("Enter a base URL for your endpoint (e.g. http://localhost:11434).");
@@ -145,6 +204,15 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
     }
   };
 
+  /** Detect-again handler for the not_signed_in / not_installed states.
+   *  Bypasses the cache so the user's terminal recovery (codex login etc.)
+   *  is actually retried instead of returning the cached failure. */
+  const onRetryProbe = () => {
+    if (provider === "codex") invalidateCodexProbe();
+    if (provider === "claude-code") invalidateClaudeProbe();
+    test();
+  };
+
   return (
     <div>
       <Title>Pick a model to think with.</Title>
@@ -166,43 +234,25 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
         {" "}— Pro subscriptions don't include API access.
       </p>
 
-      <div className="mb-6 grid grid-cols-2 gap-2">
-        {PROVIDERS.map((row) => {
-          const active = provider === row.id;
-          return (
-            <button
-              key={row.id}
-              onClick={() => setProvider(row.id)}
-              className={`rounded-md border px-3 py-3 text-left text-sm transition-all duration-180 ${
-                active
-                  ? "border-ink/45 bg-sunken"
-                  : "border-hairline bg-canvas hover:border-ink/15"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <div className="font-medium capitalize text-ink">{row.id}</div>
-                {row.badge && (
-                  <span className="text-[9px] uppercase tracking-[0.14em] text-ink-faint">
-                    {row.badge}
-                  </span>
-                )}
-              </div>
-              <div className="mt-[4px] text-xxs leading-snug text-ink-faint">
-                {row.blurb}
-              </div>
-            </button>
-          );
-        })}
+      <div className="mb-6">
+        <CategorizedProviderGrid
+          groups={groups}
+          active={provider}
+          onPick={setProvider}
+        />
       </div>
 
-      {provider === "claude-code" ? (
-        <div className="mb-4 rounded-md border border-hairline bg-sunken px-4 py-4 text-sm text-ink-soft">
-          <p className="font-medium text-ink">No API key required.</p>
-          <p className="mt-1 text-xxs leading-snug text-ink-faint">
-            Keepr will use your installed Claude Code CLI. Billing goes through
-            your existing Claude Code account.
-          </p>
-        </div>
+      {CLI_PROVIDERS.has(provider) ? (
+        <CliProviderPanel
+          provider={p}
+          probe={probe}
+          onRetry={state === "err" ? onRetryProbe : undefined}
+          otherErrorMessage={
+            probe && !probe.ok && probe.reason === "other"
+              ? friendlyProviderError(new Error(probe.raw), provider)
+              : undefined
+          }
+        />
       ) : provider === "custom" ? (
         <>
           <Field label="Base URL" hint="The root URL of your OpenAI-compatible server (e.g. http://localhost:11434)">
@@ -274,17 +324,86 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
       >
         <PrimaryButton
           onClick={test}
-          disabled={(provider !== "custom" && provider !== "claude-code" && !key.trim()) || state === "testing"}
+          disabled={
+            (!CLI_PROVIDERS.has(provider) && provider !== "custom" && !key.trim()) ||
+            state === "testing"
+          }
         >
           {state === "testing"
-            ? (provider === "claude-code" ? "Detecting…" : "Testing…")
-            : (provider === "claude-code" ? "Detect & save" : "Test & save")}
+            ? CLI_PROVIDERS.has(provider)
+              ? "Detecting…"
+              : "Testing…"
+            : CLI_PROVIDERS.has(provider)
+            ? "Detect & save"
+            : "Test & save"}
         </PrimaryButton>
         <StatusLine
           state={state}
-          message={state === "ok" ? (provider === "claude-code" ? "Claude Code detected." : "Key verified.") : error}
+          message={
+            state === "ok"
+              ? CLI_PROVIDERS.has(provider)
+                ? `${p.label} detected.`
+                : "Key verified."
+              : error
+          }
         />
       </StepFooter>
+    </div>
+  );
+}
+
+/** Renders the provider cards grouped by category, with a CategoryDivider
+ *  between non-empty groups. Adding a new provider = one new entry in
+ *  PROVIDERS in services/llm.ts; no change here. */
+function CategorizedProviderGrid({
+  groups,
+  active,
+  onPick,
+}: {
+  groups: Record<LLMCategory, LLMProvider[]>;
+  active: LLMProviderId;
+  onPick: (id: LLMProviderId) => void;
+}) {
+  const sections = CATEGORY_ORDER
+    .map((cat) => ({ cat, providers: groups[cat] }))
+    .filter((s) => s.providers.length > 0);
+
+  return (
+    <div>
+      {sections.map((section, idx) => (
+        <div key={section.cat}>
+          {idx > 0 && <CategoryDivider label={CATEGORY_LABELS[section.cat]} />}
+          <div className="grid grid-cols-2 gap-2">
+            {section.providers.map((row) => {
+              const card = CARDS[row.id];
+              const isActive = active === row.id;
+              return (
+                <button
+                  key={row.id}
+                  onClick={() => onPick(row.id)}
+                  className={`rounded-md border px-3 py-3 text-left text-sm transition-all duration-180 ${
+                    isActive
+                      ? "border-ink/45 bg-sunken"
+                      : "border-hairline bg-canvas hover:border-ink/15"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium capitalize text-ink">{row.id}</div>
+                    {card?.badge && (
+                      <span className="text-[9px] uppercase tracking-[0.14em] text-ink-faint">
+                        {card.badge}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-[4px] text-xxs leading-snug text-ink-faint">
+                    {card?.blurb || ""}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -297,7 +416,7 @@ function keyFormatProblem(
   provider: LLMProviderId,
   key: string
 ): string | null {
-  if (provider === "custom" || provider === "claude-code") return null;
+  if (provider === "custom" || CLI_PROVIDERS.has(provider)) return null;
   if (!key) return "Paste your API key to continue.";
   if (/\s/.test(key)) return "That key has whitespace in it — try copying again.";
   if (key.length < 20) return "That looks too short to be an API key.";
@@ -311,36 +430,4 @@ function keyFormatProblem(
     return "OpenAI keys start with 'sk-'. Grab one from platform.openai.com/api-keys.";
   }
   return null;
-}
-
-function friendlyProviderError(e: any, provider: LLMProviderId): string {
-  const raw = (e?.message || String(e) || "").toLowerCase();
-  // Log the raw provider response to the DevTools console so the user
-  // (or a support thread) can see exactly what came back without us
-  // leaking it onto the onboarding screen.
-  // eslint-disable-next-line no-console
-  console.error("[keepr] provider test failed:", e?.message || e);
-  if (raw.includes("credit_balance_too_low") || raw.includes("billing") || raw.includes("insufficient")) {
-    return "The key is valid but the account has no API credits. Add a payment method + top up at platform.claude.com/settings/billing.";
-  }
-  if (raw.includes("401") || raw.includes("unauthorized") || raw.includes("invalid_api_key") || raw.includes("invalid x-api-key")) {
-    if (provider === "anthropic") {
-      return "Anthropic rejected that key (401). Possible causes: (1) the key was deactivated, (2) the account has no API billing set up at platform.claude.com/settings/billing, (3) you copied a truncated key. Check the DevTools console for the raw response and try creating a fresh key.";
-    }
-    if (provider === "custom") {
-      return "Your endpoint returned 401 — check the API key or auth configuration.";
-    }
-    const host = new URL(getProvider(provider).keyUrl).host;
-    return `That key didn't authorize. Double-check you copied it from ${host}.`;
-  }
-  if (raw.includes("429") || raw.includes("rate")) {
-    return "Rate-limited on the test call. Wait a few seconds and try again.";
-  }
-  if (raw.includes("scope") || raw.includes("not allowed") || raw.includes("forbidden on")) {
-    return "The Tauri HTTP scope is blocking this host. This is an Keepr bug — please file an issue.";
-  }
-  if (raw.includes("network") || raw.includes("fetch") || raw.includes("failed to connect")) {
-    return "Couldn't reach the provider. Check your network and try again.";
-  }
-  return e?.message || "Test call failed.";
 }

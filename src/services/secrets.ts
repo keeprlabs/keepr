@@ -18,6 +18,9 @@ export const SECRET_KEYS = {
   openrouter: "llm.openrouter.key",
   custom: "llm.custom.key",
   "claude-code": "llm.claude-code.key",
+  // CLI providers don't store a key. The entry exists for symmetry so
+  // SECRET_KEYS[provider] is always defined, even when the value is unused.
+  codex: "llm.codex.key",
   github: "github.token",
   gitlab: "gitlab.token",
   slackBot: "slack.bot_token",

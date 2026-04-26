@@ -12,7 +12,21 @@ import {
   deleteMember,
 } from "../services/db";
 import { SECRET_KEYS, getSecret, setSecret } from "../services/secrets";
-import { getProvider, setCustomConfig, type LLMProviderId } from "../services/llm";
+import {
+  friendlyProviderError,
+  getProvider,
+  invalidateClaudeProbe,
+  invalidateCodexProbe,
+  probeClaudeCode,
+  probeCodex,
+  providersByCategory,
+  setCustomConfig,
+  type LLMCategory,
+  type LLMProviderId,
+  type ProbeResult,
+} from "../services/llm";
+import { CategoryDivider } from "../components/primitives/CategoryDivider";
+import { CliProviderPanel } from "../components/primitives/CliProviderPanel";
 import { defaultMemoryDir } from "../services/fsio";
 import { slugify } from "../services/memory";
 import * as slack from "../services/slack";
@@ -39,6 +53,13 @@ export function Settings({
   const [ghRepos, setGhRepos] = useState<Array<{ full_name: string; owner: { login: string } }>>([]);
   const [glProjects, setGlProjects] = useState<gitlab.GitLabProjectRemote[]>([]);
   const [llmKey, setLlmKey] = useState("");
+  // CLI provider probe state. Lazy: only fires when the active provider is
+  // codex / claude-code, so users opening Settings to fix Slack don't pay
+  // for a silent OpenAI/Anthropic billing call. The probe helpers carry
+  // their own module-level cache, so the onboarding probe satisfies this one.
+  const [codexProbe, setCodexProbe] = useState<ProbeResult | null>(null);
+  const [claudeProbe, setClaudeProbe] = useState<ProbeResult | null>(null);
+  const [llmSaveError, setLlmSaveError] = useState<string>("");
   const [slackToken, setSlackToken] = useState("");
   const [ghToken, setGhToken] = useState("");
   const [glToken, setGlToken] = useState("");
@@ -63,12 +84,13 @@ export function Settings({
     setMembers(await listMembers());
     // Read the key for whichever provider is currently active.
     const activeProvider = freshCfg.llm_provider || "anthropic";
-    if (activeProvider === "claude-code") {
+    if (activeProvider === "claude-code" || activeProvider === "codex") {
       setLlmKey("");
     } else {
       setLlmKey((await getSecret(SECRET_KEYS[activeProvider])) || "");
     }
     setLlmSaveStatus("idle");
+    setLlmSaveError("");
     setSlackToken((await getSecret(SECRET_KEYS.slackBot)) || "");
     setGhToken((await getSecret(SECRET_KEYS.github)) || "");
     setGlToken((await getSecret(SECRET_KEYS.gitlab)) || "");
@@ -82,6 +104,21 @@ export function Settings({
   useEffect(() => {
     load();
   }, []);
+
+  // Lazy CLI probe: only fire when the active provider is a CLI tool, so
+  // users opening Settings to fix Slack don't trigger a silent OpenAI/Anthropic
+  // billing call. The probe helpers are cached at the module level — if
+  // onboarding already probed, this is a free read.
+  useEffect(() => {
+    let cancelled = false;
+    const provider = cfg.llm_provider;
+    if (provider === "codex") {
+      probeCodex(false).then((r) => { if (!cancelled) setCodexProbe(r); });
+    } else if (provider === "claude-code") {
+      probeClaudeCode(false).then((r) => { if (!cancelled) setClaudeProbe(r); });
+    }
+    return () => { cancelled = true; };
+  }, [cfg.llm_provider]);
 
   // Scroll to a specific integration panel when caller (typically the
   // RunOverlay "Fix in Settings" button) passed a focusKind. Waits for
@@ -201,37 +238,24 @@ export function Settings({
         </h1>
 
         <Panel title="Model">
-          <div className="mb-3 flex gap-2">
-            {(["anthropic", "openai", "openrouter", "custom", "claude-code"] as LLMProviderId[]).map((id) => (
-              <button
-                key={id}
-                onClick={async () => {
-                  const p = getProvider(id);
-                  const patch: Record<string, any> = {
-                    llm_provider: id,
-                  };
-                  if (id === "custom") {
-                    // For custom, use the stored custom model names (or keep current).
-                    patch.synthesis_model = cfg.custom_llm_synthesis_model || cfg.synthesis_model;
-                    patch.classifier_model = cfg.custom_llm_classifier_model || cfg.classifier_model;
-                  } else {
-                    patch.synthesis_model = p.defaultSynthesisModel;
-                    patch.classifier_model = p.defaultClassifierModel;
-                  }
-                  await setConfig(patch);
-                  // load() will read the key for the newly-active provider.
-                  await load();
-                }}
-                className={`flex-1 rounded-md border px-3 py-2 text-sm capitalize transition-all duration-180 ease-calm ${
-                  cfg.llm_provider === id
-                    ? "border-ink/35 text-ink"
-                    : "border-hairline text-ink-soft hover:border-ink/20"
-                }`}
-              >
-                {id}
-              </button>
-            ))}
-          </div>
+          <CategorizedProviderRow
+            active={(cfg.llm_provider || "anthropic") as LLMProviderId}
+            onPick={async (id) => {
+              const p = getProvider(id);
+              const patch: Record<string, any> = { llm_provider: id };
+              if (id === "custom") {
+                patch.synthesis_model = cfg.custom_llm_synthesis_model || cfg.synthesis_model;
+                patch.classifier_model = cfg.custom_llm_classifier_model || cfg.classifier_model;
+              } else {
+                patch.synthesis_model = p.defaultSynthesisModel;
+                patch.classifier_model = p.defaultClassifierModel;
+              }
+              await setConfig(patch);
+              // load() will read the key (or skip it for CLI providers) and
+              // the provider-change useEffect will trigger the lazy probe.
+              await load();
+            }}
+          />
           {(() => {
             const activeProvider = (cfg.llm_provider || "anthropic") as LLMProviderId;
             const p = getProvider(activeProvider);
@@ -258,23 +282,36 @@ export function Settings({
                   });
                 }
                 setLlmSaveStatus("saved");
+                setLlmSaveError("");
                 setTimeout(() => setLlmSaveStatus("idle"), 1800);
               } catch (e: any) {
-                // eslint-disable-next-line no-console
-                console.error("[keepr] setSecret failed:", e);
                 setLlmSaveStatus("error");
+                setLlmSaveError(friendlyProviderError(e, activeProvider));
               }
             };
 
-            if (activeProvider === "claude-code") {
+            if (activeProvider === "claude-code" || activeProvider === "codex") {
+              const probe = activeProvider === "codex" ? codexProbe : claudeProbe;
+              const onRetry = () => {
+                if (activeProvider === "codex") {
+                  invalidateCodexProbe();
+                  probeCodex(true).then(setCodexProbe);
+                } else {
+                  invalidateClaudeProbe();
+                  probeClaudeCode(true).then(setClaudeProbe);
+                }
+              };
               return (
-                <div className="rounded-md border border-hairline bg-sunken px-4 py-4 text-sm text-ink-soft">
-                  <p className="font-medium text-ink">No API key required.</p>
-                  <p className="mt-1 text-xs leading-snug text-ink-faint">
-                    Keepr uses your installed Claude Code CLI. Billing goes through
-                    your existing Claude Code account.
-                  </p>
-                </div>
+                <CliProviderPanel
+                  provider={p}
+                  probe={probe}
+                  onRetry={probe && !probe.ok ? onRetry : undefined}
+                  otherErrorMessage={
+                    probe && !probe.ok && probe.reason === "other"
+                      ? friendlyProviderError(new Error(probe.raw), activeProvider)
+                      : undefined
+                  }
+                />
               );
             }
 
@@ -331,6 +368,19 @@ export function Settings({
               </Field>
             );
           })()}
+          {/* Friendly error copy for saveKey failures. Lives outside the
+              branch IIFE so it renders for both hosted and custom flows
+              (saveKey is only called from those two branches). aria-live
+              polite matches the SaveButton/AutoSaveInput convention used
+              elsewhere in this file — no aggressive screen-reader interrupt. */}
+          {llmSaveStatus === "error" && llmSaveError && (
+            <p
+              className="-mt-2 mb-3 text-xxs leading-snug text-ink-faint"
+              aria-live="polite"
+            >
+              {llmSaveError}
+            </p>
+          )}
           <Field label="Synthesis model">
             <AutoSaveInput
               className={inputCls}
@@ -1125,6 +1175,58 @@ function RubricTextarea({
       >
         {flash ? "Saved" : ""}
       </span>
+    </div>
+  );
+}
+
+// ── Categorized provider row (Settings Model panel) ───────────────────
+
+const CATEGORY_ORDER: LLMCategory[] = ["hosted", "cli", "self_hosted"];
+const CATEGORY_LABELS: Record<LLMCategory, string> = {
+  hosted: "Hosted",
+  cli: "Local CLI",
+  self_hosted: "Self-hosted",
+};
+
+/** Mirror of the onboarding categorized grid, sized for the Settings panel.
+ *  Within each non-empty category, providers render as flex-1 buttons in a
+ *  row. CategoryDivider sits between sections. Empty categories don't render
+ *  their divider — relevant today because self_hosted is empty until Qwen
+ *  Local lands. */
+function CategorizedProviderRow({
+  active,
+  onPick,
+}: {
+  active: LLMProviderId;
+  onPick: (id: LLMProviderId) => void;
+}) {
+  const groups = providersByCategory();
+  const sections = CATEGORY_ORDER
+    .map((cat) => ({ cat, providers: groups[cat] }))
+    .filter((s) => s.providers.length > 0);
+
+  return (
+    <div className="mb-3">
+      {sections.map((section, idx) => (
+        <div key={section.cat}>
+          {idx > 0 && <CategoryDivider label={CATEGORY_LABELS[section.cat]} />}
+          <div className="flex gap-2">
+            {section.providers.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => onPick(p.id)}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm capitalize transition-all duration-180 ease-calm ${
+                  active === p.id
+                    ? "border-ink/35 text-ink"
+                    : "border-hairline text-ink-soft hover:border-ink/20"
+                }`}
+              >
+                {p.id}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

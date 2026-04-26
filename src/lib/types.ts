@@ -1,6 +1,6 @@
 // Shared domain types for Keepr.
 
-export type Provider = "slack" | "github" | "gitlab" | "jira" | "linear" | "anthropic" | "openai" | "openrouter" | "custom" | "claude-code";
+export type Provider = "slack" | "github" | "gitlab" | "jira" | "linear" | "anthropic" | "openai" | "openrouter" | "custom" | "claude-code" | "codex";
 export type WorkflowType = "team_pulse" | "one_on_one_prep" | "weekly_update" | "perf_evaluation" | "promo_readiness";
 export type SessionStatus = "pending" | "processing" | "complete" | "failed";
 export type EvidenceSource =
@@ -104,7 +104,7 @@ export interface AppConfig {
   selected_linear_teams: LinearTeam[];
   gitlab_instance_url: string;
   jira_cloud_url: string;
-  llm_provider: "anthropic" | "openai" | "openrouter" | "custom" | "claude-code";
+  llm_provider: "anthropic" | "openai" | "openrouter" | "custom" | "claude-code" | "codex";
   synthesis_model: string;
   classifier_model: string;
   custom_llm_base_url: string;

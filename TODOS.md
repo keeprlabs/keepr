@@ -103,3 +103,43 @@ contributor (or future-you) can pick it up cold.
 **Context:** Discovered during `/plan-eng-review` of the onboarding-scope-picker plan. The 2000-channel cap is a Slack rate-limit pragmatism. For v1, the soft cap is acceptable — most users have <500 public channels. Add a console warning when cursor is hit AND last page was full.
 
 **Depends on / blocked by:** Nothing.
+
+---
+
+## Create DESIGN.md
+
+**What:** Write a single-page DESIGN.md at the repo root capturing Keepr's visual vocabulary — color tokens (ink, ink-soft, ink-faint, sunken, hairline, accent), typography stack, spacing scale, common component patterns (Panel, Field, sunken card, chip, eyebrow), motion durations, and the "why" behind each choice.
+
+**Why:** No design system doc exists today. Every design review re-derives the vocabulary from the Tailwind config and the existing components. Discovered during `/plan-design-review` of `tasks/codex-provider.md` — the "category divider" decision had to reach into `Settings.tsx:170` to find the eyebrow pattern that already exists.
+
+**Pros:**
+- Future design reviews calibrate against a stated system instead of re-discovering it.
+- New contributors (human or AI) pattern-match faster.
+- Forces us to notice when one screen invents new tokens that should be promoted.
+
+**Cons:**
+- Half-day write + ongoing maintenance.
+- Risk of doc drift if not updated when the system evolves.
+
+**Context:** Worth doing once we have 2-3 more design reviews to draw from (so the doc captures real patterns, not a guess at them). Keep it short — a 3-page reference, not a 30-page brand book.
+
+**Depends on / blocked by:** Nothing. Can ship anytime.
+
+---
+
+## Split self_hosted as a third visible category in the LLM picker
+
+**What:** When the second self-hosted provider lands (Qwen Local, Ollama, etc.), flip Custom's `category` from `hosted` to `self_hosted` and add a third `<CategoryDivider label="Self-hosted" />` between the CLI and self-hosted groups in StepLLM and Settings.
+
+**Why:** `tasks/codex-provider.md` introduced the categorized picker with three categories defined (`hosted`, `cli`, `self_hosted`) but only renders two visible sections to avoid an awkward single-card "Self-hosted" group containing only Custom. The third section auto-renders when its category becomes non-empty, but the trigger to flip Custom's category is a manual decision.
+
+**Pros:**
+- Better mental model — Custom (point at any OpenAI-compatible endpoint) is conceptually self-hosted, not hosted.
+- The data-layer plumbing already exists; this is a one-character change once the second provider arrives.
+
+**Cons:**
+- Has to be remembered when adding the next self-hosted provider.
+
+**Context:** See `tasks/codex-provider.md` "Provider categorization (data layer)" section. The `providersByCategory()` helper iterates over all three categories in fixed order; empty categories don't render their divider.
+
+**Depends on / blocked by:** Adding a second self-hosted provider (Qwen Local or similar).
