@@ -17,6 +17,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Refuse to ship a release if the Tauri updater pubkey is still the
+      # default development key. Production must replace it (see docs/signing.md
+      # → "Tauri auto-update signing"). Without this guard we'd ship binaries
+      # that auto-update from a key whose private half is in the repo's git
+      # history — anyone could push a poisoned update.
+      - name: Guard — Tauri updater pubkey must not be the dev default
+        run: |
+          DEV_PUBKEY="dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1ODVDMTY1RjVGOTBGMEIK"
+          if grep -F "$DEV_PUBKEY" src-tauri/tauri.conf.json >/dev/null; then
+            echo "::error::tauri.conf.json still has the default dev updater pubkey."
+            echo "Generate a production keypair (npx @tauri-apps/cli signer generate),"
+            echo "replace plugins.updater.pubkey, and set TAURI_SIGNING_PRIVATE_KEY*"
+            echo "secrets. See docs/signing.md."
+            exit 1
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -70,6 +86,12 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # Tauri updater signing (independent of Apple notarization).
+          # tauri-action picks these up automatically when bundle.createUpdaterArtifacts
+          # is true in tauri.conf.json. Generates Keepr.app.tar.gz, .sig, and latest.json
+          # alongside the DMG and uploads them to the GitHub Release.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Keepr ${{ github.ref_name }}"
@@ -91,6 +113,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri updater signing — required even for unsigned builds.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Keepr ${{ github.ref_name }}"
