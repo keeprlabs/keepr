@@ -20,6 +20,10 @@ vi.mock("../../services/slack", () => ({
 
 vi.mock("../../services/github", () => ({
   listUserRepos: (...a: unknown[]) => listUserRepos(...a),
+  hasReadOrgScope: vi.fn(async () => true),
+  invalidateScopeCache: vi.fn(),
+  listUserOrgs: vi.fn(async () => []),
+  listOrgMembers: vi.fn(async () => []),
 }));
 
 vi.mock("../../services/gitlab", () => ({
