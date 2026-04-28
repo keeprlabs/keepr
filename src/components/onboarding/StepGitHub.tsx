@@ -2,7 +2,7 @@
 // app needed). Device flow is offered as "preferred when available", and
 // only when the installed build has a real client id wired up.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
   Field,
@@ -34,6 +34,23 @@ export function StepGitHub({
   const [login, setLogin] = useState("");
   const [device, setDevice] = useState<github.DeviceCodeResponse | null>(null);
   const [scopeCount, setScopeCount] = useState(0);
+  const [readOrgOK, setReadOrgOK] = useState<boolean | null>(null);
+
+  // After auth lands, probe the granted scopes once. Used to surface a
+  // "Reconnect with read:org enabled" hint inline so users don't get to
+  // the team-mapping step and silently see an empty GitHub picker.
+  useEffect(() => {
+    if (state !== "ok") return;
+    let cancelled = false;
+    (async () => {
+      github.invalidateScopeCache();
+      const ok = await github.hasReadOrgScope().catch(() => false);
+      if (!cancelled) setReadOrgOK(ok);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state]);
 
   const gateDisabled = state !== "ok" || scopeCount === 0;
   const gateTitle =
@@ -60,7 +77,7 @@ export function StepGitHub({
       setState("err");
       const raw = (e?.message || "").toLowerCase();
       if (raw.includes("401") || raw.includes("bad credentials")) {
-        setError("GitHub rejected that token. Double-check the scopes include repo and read:user.");
+        setError("GitHub rejected that token. Double-check the scopes include repo, read:user, and read:org.");
       } else {
         setError(e?.message || "Token test failed.");
       }
@@ -134,11 +151,11 @@ export function StepGitHub({
                 onClick={(e) => {
                   e.preventDefault();
                   openExternal(
-                    "https://github.com/settings/tokens/new?scopes=repo,read:user&description=Keepr"
+                    "https://github.com/settings/tokens/new?scopes=repo,read:user,read:org&description=Keepr"
                   );
                 }}
               >
-                Create one (scopes: repo, read:user)
+                Create one (scopes: repo, read:user, read:org)
               </button>
             }
           >
@@ -153,6 +170,31 @@ export function StepGitHub({
             />
           </Field>
 
+          {state === "ok" && readOrgOK === false && (
+            <div className="mb-4 rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-ink-soft leading-relaxed">
+              Connected as <span className="mono">{login}</span>, but Keepr
+              can't see your org members yet — the token is missing{" "}
+              <span className="mono">read:org</span>. Reconnect with that
+              scope checked to map teammates from your GitHub orgs.
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (mode === "pat") {
+                      openExternal(
+                        "https://github.com/settings/tokens/new?scopes=repo,read:user,read:org&description=Keepr"
+                      );
+                    } else {
+                      startDevice();
+                    }
+                  }}
+                  className="text-accent hover:underline"
+                >
+                  Reconnect GitHub →
+                </button>
+              </div>
+            </div>
+          )}
           {state === "ok" && (
             <ScopePickerPanel
               integration="github"
@@ -217,6 +259,23 @@ export function StepGitHub({
             </Lede>
           )}
 
+          {state === "ok" && readOrgOK === false && (
+            <div className="mb-4 rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-ink-soft leading-relaxed">
+              Connected as <span className="mono">{login}</span>, but Keepr
+              can't see your org members yet — the token is missing{" "}
+              <span className="mono">read:org</span>. Reconnect with that
+              scope checked to map teammates from your GitHub orgs.
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => startDevice()}
+                  className="text-accent hover:underline"
+                >
+                  Reconnect GitHub →
+                </button>
+              </div>
+            </div>
+          )}
           {state === "ok" && (
             <ScopePickerPanel
               integration="github"

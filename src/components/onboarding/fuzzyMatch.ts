@@ -1,13 +1,13 @@
-// Very small fuzzy matcher for the team-members step: given a github
-// handle or a free-text display name, score candidate Slack users and
-// return them ranked best-first. Intentionally tiny — no trigram index,
-// no Levenshtein — just the heuristics that actually matter when your
-// input is a github handle and your candidates are Slack display names.
+// Tiny fuzzy matcher for the team-members step. Generic over candidate
+// shape: callers pass a function returning the strings to match against.
+// Intentionally small — no trigrams, no Levenshtein — just the heuristics
+// that matter when input is a human name or handle and candidates are
+// display names from a provider's user list.
 
 import type { SlackUser } from "../../services/slack";
 
-export interface Scored {
-  user: SlackUser;
+export interface Scored<T> {
+  user: T;
   score: number;
 }
 
@@ -15,7 +15,63 @@ function norm(s: string): string {
   return s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g, "");
 }
 
-function candidateStrings(u: SlackUser): string[] {
+function tokenize(s: string): string[] {
+  return s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/** Score `query` against an array of candidate strings. */
+export function scoreCandidates(query: string, candidates: string[]): number {
+  if (!query) return 0;
+  const qn = norm(query);
+  if (!qn) return 0;
+  const qTokens = tokenize(query);
+  let best = 0;
+  for (const cand of candidates) {
+    if (!cand) continue;
+    const cn = norm(cand);
+    if (!cn) continue;
+
+    if (cn === qn) return 100;
+    if (cn.includes(qn)) best = Math.max(best, 75);
+    if (qn.includes(cn)) best = Math.max(best, 60);
+
+    const cTokens = tokenize(cand);
+    if (qTokens.length && cTokens.length) {
+      const overlap = qTokens.filter((t) =>
+        cTokens.some((c) => c.startsWith(t))
+      ).length;
+      if (overlap) {
+        best = Math.max(best, 40 + overlap * 10);
+      }
+    }
+
+    if (qn.length >= 2 && qn.length <= 4) {
+      const initials = cTokens.map((t) => t[0]).join("");
+      if (initials.startsWith(qn)) best = Math.max(best, 30);
+    }
+  }
+  return best;
+}
+
+/** Generic ranker. Returns the top `limit` candidates with score > 0. */
+export function rankCandidates<T>(
+  query: string,
+  items: T[],
+  getStrings: (item: T) => string[],
+  limit = 5
+): Scored<T>[] {
+  const out: Scored<T>[] = [];
+  for (const item of items) {
+    const s = scoreCandidates(query, getStrings(item));
+    if (s > 0) out.push({ user: item, score: s });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
+
+// ── Slack-specific helpers (kept for back-compat with existing tests/UI) ─
+
+function slackCandidateStrings(u: SlackUser): string[] {
   return [
     u.profile?.display_name || "",
     u.profile?.real_name || "",
@@ -26,64 +82,12 @@ function candidateStrings(u: SlackUser): string[] {
     .filter(Boolean);
 }
 
-function tokenize(s: string): string[] {
-  return s.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
-}
-
-/** Score `query` (a display name or a handle) against a Slack user. */
-function scoreOne(query: string, user: SlackUser): number {
-  if (!query) return 0;
-  const qn = norm(query);
-  if (!qn) return 0;
-  let best = 0;
-  for (const cand of candidateStrings(user)) {
-    const cn = norm(cand);
-    if (!cn) continue;
-
-    // Exact match on any variant — best possible.
-    if (cn === qn) return 100;
-    // Handle-style: qn is a substring of the candidate (e.g. "priyar"
-    // matching "priya raman").
-    if (cn.includes(qn)) best = Math.max(best, 75);
-    if (qn.includes(cn)) best = Math.max(best, 60);
-
-    // Token overlap — catches "priya raman" vs "Priya R." etc.
-    const qTokens = tokenize(query);
-    const cTokens = tokenize(cand);
-    if (qTokens.length && cTokens.length) {
-      const overlap = qTokens.filter((t) => cTokens.some((c) => c.startsWith(t))).length;
-      if (overlap) {
-        best = Math.max(best, 40 + overlap * 10);
-      }
-    }
-
-    // First-letter initial match (e.g. "pr" matches "Priya Raman" via
-    // initials).
-    if (qn.length >= 2 && qn.length <= 4) {
-      const initials = cTokens.map((t) => t[0]).join("");
-      if (initials.startsWith(qn)) best = Math.max(best, 30);
-    }
-  }
-  return best;
-}
-
-/**
- * Rank a Slack user list against a query, returning the top N above a
- * minimum score. Used to suggest a Slack user from a github handle or a
- * display name while typing.
- */
 export function fuzzyMatchSlack(
   query: string,
   users: SlackUser[],
   limit = 5
-): Scored[] {
-  const out: Scored[] = [];
-  for (const u of users) {
-    const s = scoreOne(query, u);
-    if (s > 0) out.push({ user: u, score: s });
-  }
-  out.sort((a, b) => b.score - a.score);
-  return out.slice(0, limit);
+): Scored<SlackUser>[] {
+  return rankCandidates(query, users, slackCandidateStrings, limit);
 }
 
 export function bestSlackMatch(

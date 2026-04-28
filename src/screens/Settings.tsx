@@ -38,6 +38,19 @@ import type { AppConfig, FeatureFlags, TeamMember } from "../lib/types";
 import { DEFAULT_CONFIG, DEFAULT_FEATURE_FLAGS } from "../lib/types";
 import { GitHubIcon, GitLabIcon, SlackIcon, JiraIcon, LinearIcon } from "../components/primitives/SourceBadge";
 import { ChipGrid, SourceChip } from "../components/onboarding/primitives";
+import { UserCombobox } from "../components/onboarding/UserCombobox";
+import {
+  loadGitHubMemberPool,
+  loadJiraUserPool,
+  resolveGitHubLabel,
+  resolveJiraLabel,
+  resolveLinearLabel,
+  resolveSlackLabel,
+  searchGitHub,
+  searchJira,
+  searchLinear,
+  searchSlack,
+} from "../services/teammateSearch";
 import type { IntegrationKind } from "../services/pulseOutcome";
 
 export function Settings({
@@ -77,6 +90,9 @@ export function Settings({
   const [jiraUsersLoaded, setJiraUsersLoaded] = useState(false);
   const [linearUsers, setLinearUsers] = useState<linear.LinearUser[]>([]);
   const [linearUsersLoaded, setLinearUsersLoaded] = useState(false);
+  const [githubMembers, setGithubMembers] = useState<github.GitHubMember[]>([]);
+  const [githubMembersLoaded, setGithubMembersLoaded] = useState(false);
+  const [githubScopeOK, setGithubScopeOK] = useState<boolean | null>(null);
 
   const load = async () => {
     const freshCfg = await getConfig();
@@ -104,6 +120,24 @@ export function Settings({
   useEffect(() => {
     load();
   }, []);
+
+  // Probe GitHub OAuth scope so the team-mapping panel can warn the user
+  // to reconnect when read:org is missing — otherwise the GitHub picker
+  // silently shows zero candidates.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const tok = await getSecret(SECRET_KEYS.github);
+      if (cancelled) return;
+      if (!tok) {
+        setGithubScopeOK(null);
+        return;
+      }
+      const ok = await github.hasReadOrgScope().catch(() => false);
+      if (!cancelled) setGithubScopeOK(ok);
+    })();
+    return () => { cancelled = true; };
+  }, [ghToken]);
 
   // Lazy CLI probe: only fire when the active provider is a CLI tool, so
   // users opening Settings to fix Slack don't trigger a silent OpenAI/Anthropic
@@ -682,10 +716,19 @@ export function Settings({
         </Panel>
 
         <Panel title="Team members">
+          {githubScopeOK === false && (
+            <div className="mb-3 rounded-md border border-hairline bg-surface px-3 py-2 text-xs text-ink-soft leading-relaxed">
+              GitHub is connected, but the token is missing{" "}
+              <span className="mono">read:org</span>. Until you reconnect,
+              the GitHub picker won't see your org members. Update the token
+              above with <span className="mono">repo + read:user + read:org</span>{" "}
+              and save.
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             {members.map((m) => (
               <div key={m.id} className="flex flex-col gap-1.5 rounded-md border border-hairline p-3 mb-2">
-                <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
+                <div className="grid grid-cols-[2fr_1fr] gap-2">
                   <input
                     className={inputCls}
                     value={m.display_name}
@@ -694,23 +737,44 @@ export function Settings({
                   />
                   <input
                     className={inputCls}
-                    placeholder="GitHub handle"
-                    value={m.github_handle || ""}
-                    onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, github_handle: e.target.value } : x))}
-                  />
-                  <input
-                    className={inputCls}
                     placeholder="GitLab username"
                     value={m.gitlab_username || ""}
                     onChange={(e) => setMembers(members.map((x) => x.id === m.id ? { ...x, gitlab_username: e.target.value } : x))}
                   />
                 </div>
-                <div className="grid grid-cols-[1fr_1fr_1fr] gap-2">
-                  <SlackUserPicker
-                    value={m.slack_user_id || ""}
-                    slackUsers={slackUsers}
-                    slackUsersLoaded={slackUsersLoaded}
-                    onLoadUsers={async () => {
+                <div className="grid grid-cols-[1fr_1fr_1fr_1fr] gap-2">
+                  <UserCombobox
+                    provider="github"
+                    value={m.github_handle || null}
+                    placeholder="Search GitHub…"
+                    initialSeed={m.display_name}
+                    disabled={githubScopeOK === false}
+                    disabledHint="Reconnect GitHub with read:org scope"
+                    search={(q) => searchGitHub(q, githubMembers)}
+                    onLoad={async () => {
+                      if (githubMembersLoaded || githubScopeOK === false) return;
+                      try {
+                        const members = await loadGitHubMemberPool();
+                        setGithubMembers(members);
+                        setGithubMembersLoaded(true);
+                      } catch (e: any) {
+                        alert(`Could not load GitHub org members: ${e.message}`);
+                      }
+                    }}
+                    resolveLabel={async (h) => resolveGitHubLabel(h, githubMembers)}
+                    onChange={(match) =>
+                      setMembers(members.map((x) =>
+                        x.id === m.id ? { ...x, github_handle: match?.handle ?? null } : x
+                      ))
+                    }
+                  />
+                  <UserCombobox
+                    provider="slack"
+                    value={m.slack_user_id || null}
+                    placeholder="Search Slack…"
+                    initialSeed={m.display_name}
+                    search={(q) => searchSlack(q, slackUsers)}
+                    onLoad={async () => {
                       if (slackUsersLoaded) return;
                       try {
                         const users = await slack.listUsers();
@@ -720,33 +784,19 @@ export function Settings({
                         alert(`Could not load Slack users: ${e.message}`);
                       }
                     }}
-                    onChange={(uid) => setMembers(members.map((x) => x.id === m.id ? { ...x, slack_user_id: uid || null } : x))}
+                    resolveLabel={async (h) => resolveSlackLabel(h, slackUsers)}
+                    onChange={(match) =>
+                      setMembers(members.map((x) =>
+                        x.id === m.id ? { ...x, slack_user_id: match?.handle ?? null } : x
+                      ))
+                    }
                   />
-                  <UserPicker
-                    value={m.jira_username || ""}
-                    placeholder="Select Jira user"
-                    options={jiraUsers.map((u) => ({ value: u.displayName, label: u.displayName, detail: u.emailAddress }))}
-                    loaded={jiraUsersLoaded}
-                    onLoad={async () => {
-                      if (jiraUsersLoaded) return;
-                      try {
-                        const firstProject = cfg.selected_jira_projects?.[0];
-                        const users = firstProject
-                          ? await jira.listProjectMembers(firstProject.key)
-                          : [];
-                        setJiraUsers(users);
-                        setJiraUsersLoaded(true);
-                      } catch (e: any) {
-                        alert(`Could not load Jira users: ${e.message}`);
-                      }
-                    }}
-                    onChange={(v) => setMembers(members.map((x) => x.id === m.id ? { ...x, jira_username: v || null } : x))}
-                  />
-                  <UserPicker
-                    value={m.linear_username || ""}
-                    placeholder="Select Linear user"
-                    options={linearUsers.map((u) => ({ value: u.displayName || u.name, label: u.displayName || u.name, detail: u.email }))}
-                    loaded={linearUsersLoaded}
+                  <UserCombobox
+                    provider="linear"
+                    value={m.linear_username || null}
+                    placeholder="Search Linear…"
+                    initialSeed={m.display_name}
+                    search={(q) => searchLinear(q, linearUsers)}
                     onLoad={async () => {
                       if (linearUsersLoaded) return;
                       try {
@@ -757,7 +807,38 @@ export function Settings({
                         alert(`Could not load Linear users: ${e.message}`);
                       }
                     }}
-                    onChange={(v) => setMembers(members.map((x) => x.id === m.id ? { ...x, linear_username: v || null } : x))}
+                    resolveLabel={async (h) => resolveLinearLabel(h, linearUsers)}
+                    onChange={(match) =>
+                      setMembers(members.map((x) =>
+                        x.id === m.id ? { ...x, linear_username: match?.handle ?? null } : x
+                      ))
+                    }
+                  />
+                  <UserCombobox
+                    provider="jira"
+                    value={m.jira_username || null}
+                    placeholder="Search Jira…"
+                    initialSeed={m.display_name}
+                    disabled={!(cfg.selected_jira_projects?.length)}
+                    disabledHint="Pick a Jira project first"
+                    search={(q) => searchJira(q, jiraUsers)}
+                    onLoad={async () => {
+                      if (jiraUsersLoaded) return;
+                      try {
+                        const keys = (cfg.selected_jira_projects || []).map((p) => p.key);
+                        const users = await loadJiraUserPool(keys);
+                        setJiraUsers(users);
+                        setJiraUsersLoaded(true);
+                      } catch (e: any) {
+                        alert(`Could not load Jira users: ${e.message}`);
+                      }
+                    }}
+                    resolveLabel={async (h) => resolveJiraLabel(h, jiraUsers)}
+                    onChange={(match) =>
+                      setMembers(members.map((x) =>
+                        x.id === m.id ? { ...x, jira_username: match?.handle ?? null } : x
+                      ))
+                    }
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -972,126 +1053,6 @@ function SaveButton({
         ? "Failed"
         : label}
     </button>
-  );
-}
-
-// Slack user picker — loads workspace users on first focus, shows a select
-// dropdown with human-readable names but stores the actual Slack user ID
-// (e.g. U05RQAXHBL7). This eliminates the #1 matching failure: users
-// entering display names instead of opaque user IDs.
-function SlackUserPicker({
-  value,
-  slackUsers,
-  slackUsersLoaded,
-  onLoadUsers,
-  onChange,
-}: {
-  value: string;
-  slackUsers: slack.SlackUser[];
-  slackUsersLoaded: boolean;
-  onLoadUsers: () => Promise<void>;
-  onChange: (uid: string) => void;
-}) {
-  const [loading, setLoading] = useState(false);
-
-  const handleFocus = async () => {
-    if (slackUsersLoaded || loading) return;
-    setLoading(true);
-    await onLoadUsers();
-    setLoading(false);
-  };
-
-  // Show the selected user's name next to the dropdown for confirmation
-  const selectedUser = slackUsers.find((u) => u.id === value);
-  const label = selectedUser
-    ? selectedUser.profile?.real_name || selectedUser.real_name || selectedUser.name
-    : null;
-
-  return (
-    <div className="relative">
-      <select
-        className={inputCls + " appearance-none pr-7"}
-        value={value}
-        onFocus={handleFocus}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">
-          {loading ? "Loading users\u2026" : "Select Slack user"}
-        </option>
-        {/* If a value is set but users haven't loaded yet, show a placeholder option */}
-        {value && !selectedUser && (
-          <option value={value}>{value} (not resolved)</option>
-        )}
-        {slackUsers.map((u) => {
-          const display = u.profile?.real_name || u.real_name || u.name;
-          return (
-            <option key={u.id} value={u.id}>
-              {display} ({u.name})
-            </option>
-          );
-        })}
-      </select>
-      {/* Dropdown chevron */}
-      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-          <path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
-    </div>
-  );
-}
-
-/** Generic user picker dropdown. Lazy-loads options on focus. */
-function UserPicker({
-  value,
-  placeholder,
-  options,
-  loaded,
-  onLoad,
-  onChange,
-}: {
-  value: string;
-  placeholder: string;
-  options: Array<{ value: string; label: string; detail?: string }>;
-  loaded: boolean;
-  onLoad: () => Promise<void>;
-  onChange: (v: string) => void;
-}) {
-  const [loading, setLoading] = useState(false);
-
-  const handleFocus = async () => {
-    if (loaded || loading) return;
-    setLoading(true);
-    await onLoad();
-    setLoading(false);
-  };
-
-  return (
-    <div className="relative">
-      <select
-        className={inputCls + " appearance-none pr-7"}
-        value={value}
-        onFocus={handleFocus}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">
-          {loading ? "Loading\u2026" : placeholder}
-        </option>
-        {value && !options.find((o) => o.value === value) && (
-          <option value={value}>{value}</option>
-        )}
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}{o.detail ? ` (${o.detail})` : ""}
-          </option>
-        ))}
-      </select>
-      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-faint">
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
-          <path d="M3 5l3 3 3-3" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      </span>
-    </div>
   );
 }
 

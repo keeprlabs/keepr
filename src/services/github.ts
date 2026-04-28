@@ -27,11 +27,18 @@ export interface DeviceCodeResponse {
   interval: number;
 }
 
+// Scopes requested at auth time. `read:org` is required so the
+// authenticated user can list members of orgs they belong to (used for
+// teammate mapping). Without it, GitHub only returns members who have
+// publicly listed their org membership — typically a small fraction of
+// any private corporate org.
+export const GITHUB_OAUTH_SCOPES = "read:user repo read:org";
+
 export async function startDeviceFlow(): Promise<DeviceCodeResponse> {
   const res = await fetch("https://github.com/login/device/code", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: "read:user repo" }),
+    body: JSON.stringify({ client_id: GITHUB_CLIENT_ID, scope: GITHUB_OAUTH_SCOPES }),
   });
   if (!res.ok) throw new Error(`GitHub device flow start failed: ${res.status}`);
   return (await res.json()) as DeviceCodeResponse;
@@ -101,6 +108,171 @@ export async function getViewer(): Promise<{ login: string; name: string | null 
   const token = await getSecret(SECRET_KEYS.github);
   if (!token) throw new Error("No GitHub token");
   return gh<{ login: string; name: string | null }>("/user", token);
+}
+
+// ---- Orgs + members (for teammate mapping) ------------------------------
+
+export interface GitHubOrg {
+  login: string;
+  description: string | null;
+}
+
+export async function listUserOrgs(): Promise<GitHubOrg[]> {
+  const token = await getSecret(SECRET_KEYS.github);
+  if (!token) throw new Error("No GitHub token");
+  const data = await gh<Array<{ login: string; description: string | null }>>(
+    "/user/orgs?per_page=100",
+    token
+  );
+  return data.map((o) => ({ login: o.login, description: o.description }));
+}
+
+export interface GitHubMember {
+  login: string;
+  name: string | null;
+  avatarUrl: string | null;
+}
+
+const GRAPHQL_URL = "https://api.github.com/graphql";
+
+async function ghGraphQL<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  signal?: AbortSignal
+): Promise<T> {
+  const token = await getSecret(SECRET_KEYS.github);
+  if (!token) throw new Error("No GitHub token");
+  const res = await fetch(GRAPHQL_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": "Keepr/0.1",
+    },
+    body: JSON.stringify({ query, variables }),
+    signal,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(
+      `GitHub GraphQL: ${res.status} ${res.statusText}` +
+        (errText ? ` — ${errText.slice(0, 400)}` : "")
+    );
+  }
+  const data: any = await res.json();
+  if (data.errors?.length) {
+    const msgs = data.errors.map((e: any) => e.message).join("; ");
+    // SAML SSO requirement and missing scopes both surface here. Surface
+    // distinctly so the UI can prompt re-auth instead of generic "failed".
+    if (/scope|read:org|membersWithRole/i.test(msgs)) {
+      throw new Error(`GitHub GraphQL: missing read:org scope — ${msgs}`);
+    }
+    throw new Error(`GitHub GraphQL: ${msgs}`);
+  }
+  return data.data as T;
+}
+
+const ORG_MEMBERS_CAP = 2000;
+
+/**
+ * Lists members of an org via GraphQL `membersWithRole`. Returns login,
+ * name, and avatar — names are why we don't use REST `/orgs/{org}/members`
+ * (that endpoint does not include name). Paginates fully via cursor with a
+ * 2000-member safety cap.
+ */
+interface OrgMembersResp {
+  organization: {
+    membersWithRole: {
+      nodes: Array<{ login: string; name: string | null; avatarUrl: string | null }>;
+      pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    } | null;
+  } | null;
+}
+
+export async function listOrgMembers(
+  orgLogin: string,
+  signal?: AbortSignal
+): Promise<GitHubMember[]> {
+  const out: GitHubMember[] = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 25; page++) {
+    if (out.length >= ORG_MEMBERS_CAP) break;
+    const data: OrgMembersResp = await ghGraphQL<OrgMembersResp>(
+      `query($org: String!, $after: String) {
+        organization(login: $org) {
+          membersWithRole(first: 100, after: $after) {
+            nodes { login name avatarUrl }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }`,
+      { org: orgLogin, after: cursor },
+      signal
+    );
+    const block = data.organization?.membersWithRole;
+    if (!block) break;
+    for (const n of block.nodes) {
+      out.push({
+        login: n.login,
+        name: n.name,
+        avatarUrl: n.avatarUrl,
+      });
+      if (out.length >= ORG_MEMBERS_CAP) break;
+    }
+    if (!block.pageInfo.hasNextPage) break;
+    cursor = block.pageInfo.endCursor;
+    if (!cursor) break;
+  }
+  return out;
+}
+
+// ---- OAuth scope detection ----------------------------------------------
+
+let _scopeCache: { token: string; scopes: string[] } | null = null;
+
+/**
+ * Reads the granted OAuth scopes by inspecting the `X-OAuth-Scopes`
+ * response header from a cheap `/user` call. Cached per-token in module
+ * memory. Returns [] when the call fails or the header is absent (some
+ * fine-grained PATs don't surface scopes — caller should treat empty as
+ * "unknown" rather than "no scopes").
+ */
+export async function getGrantedScopes(): Promise<string[]> {
+  const token = await getSecret(SECRET_KEYS.github);
+  if (!token) return [];
+  if (_scopeCache && _scopeCache.token === token) return _scopeCache.scopes;
+  try {
+    const res = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "Keepr/0.1",
+      },
+    });
+    if (!res.ok) return [];
+    const raw = res.headers.get("X-OAuth-Scopes") || "";
+    const scopes = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    _scopeCache = { token, scopes };
+    return scopes;
+  } catch {
+    return [];
+  }
+}
+
+/** Invalidate the scope cache (call after a successful re-auth). */
+export function invalidateScopeCache(): void {
+  _scopeCache = null;
+}
+
+export async function hasReadOrgScope(): Promise<boolean> {
+  const scopes = await getGrantedScopes();
+  // `admin:org` and `write:org` imply `read:org`.
+  return scopes.some((s) => s === "read:org" || s === "write:org" || s === "admin:org");
 }
 
 export async function listOrgRepos(org: string): Promise<Array<{ name: string; full_name: string }>> {
