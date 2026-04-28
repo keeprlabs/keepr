@@ -1,6 +1,8 @@
-mod secrets;
 mod fs_atomic;
+mod memory;
+mod secrets;
 
+use tauri::{Manager, WindowEvent};
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 fn migrations() -> Vec<Migration> {
@@ -270,6 +272,33 @@ CREATE INDEX IF NOT EXISTS idx_evidence_actor ON evidence_items(actor_member_id)
 ALTER TABLE team_members ADD COLUMN gitlab_username TEXT;
 "#,
         },
+        Migration {
+            version: 9,
+            description: "evidence_subject_path",
+            kind: MigrationKind::Up,
+            // v0.2.6: every evidence row gets a ctxd subject path so the UI
+            // can pivot from a citation back to the canonical event. Column
+            // is nullable; populated forward-only by the dual-write in PR 3.
+            // Older rows stay NULL until the v0.4 markdown bulk-import lands.
+            sql: r#"
+ALTER TABLE evidence_items ADD COLUMN subject_path TEXT;
+CREATE INDEX IF NOT EXISTS idx_evidence_subject_path ON evidence_items(subject_path);
+"#,
+        },
+        Migration {
+            version: 10,
+            description: "team_member_ctxd_uuid",
+            kind: MigrationKind::Up,
+            // v0.2.6: stable UUID per person used as the ctxd subject ID
+            // (`/keepr/people/{uuid}`). Slugs stay for human-readable URLs
+            // but are not used as ctxd subjects — see ADR-001 once written.
+            // Populated lazily on first event write per person.
+            sql: r#"
+ALTER TABLE team_members ADD COLUMN ctxd_uuid TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_ctxd_uuid
+  ON team_members(ctxd_uuid) WHERE ctxd_uuid IS NOT NULL;
+"#,
+        },
     ]
 }
 
@@ -301,6 +330,34 @@ pub fn run() {
                 .max_file_size(10 * 1024 * 1024)
                 .build(),
         )
+        .setup(|app| {
+            // Memory subsystem: own a DaemonHandle in managed state and
+            // spawn the ctxd sidecar in the background so the splash
+            // screen does not block on the health probe. Failures
+            // transition the handle to Offline and surface via
+            // `memory_status`; the rest of the app continues to work
+            // (markdown-tail path remains the v0.2.6 prompt builder).
+            app.manage(memory::DaemonHandle::new());
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let state = app_handle.state::<memory::DaemonHandle>();
+                if let Err(err) = memory::spawn(&app_handle, state.inner()).await {
+                    log::error!(target: "memory", "ctxd sidecar failed to start: {err}");
+                }
+            });
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { .. } = event {
+                // Best-effort SIGTERM. The shutdown is fast (Mutex grab +
+                // child.kill); blocking the close event briefly is fine.
+                let app_handle = window.app_handle().clone();
+                tauri::async_runtime::block_on(async move {
+                    let state = app_handle.state::<memory::DaemonHandle>();
+                    memory::shutdown(state.inner()).await;
+                });
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             secrets::secret_set,
             secrets::secret_get,
@@ -312,6 +369,7 @@ pub fn run() {
             fs_atomic::acquire_lock,
             fs_atomic::release_lock,
             fs_atomic::list_md_files,
+            memory::memory_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keepr");

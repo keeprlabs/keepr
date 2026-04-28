@@ -70,6 +70,10 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # tauri.conf.json's beforeBuildCommand runs `npm run fetch-ctxd`
+          # before the Rust build. For universal builds we need both
+          # apple-darwin architectures lipo'd into a single binary.
+          CTXD_TARGET: universal-apple-darwin
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Keepr ${{ github.ref_name }}"
@@ -91,6 +95,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # See note on signed step above — fetch-ctxd needs CTXD_TARGET
+          # to lipo the universal binary on macOS.
+          CTXD_TARGET: universal-apple-darwin
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Keepr ${{ github.ref_name }}"
