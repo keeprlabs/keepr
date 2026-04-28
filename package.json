@@ -11,7 +11,8 @@
     "eval": "tsx evals/run.ts",
     "test": "vitest",
     "test:run": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "release": "tsx scripts/release.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.2.2",
