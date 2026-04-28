@@ -8,6 +8,7 @@
     "build": "tsc -b --noCheck && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "fetch-ctxd": "tsx scripts/fetch-ctxd.ts",
     "eval": "tsx evals/run.ts",
     "test": "vitest",
     "test:run": "vitest run",

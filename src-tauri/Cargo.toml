@@ -31,6 +31,11 @@ sha2 = "0.11"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
+# Used by the memory subsystem (ctxd sidecar lifecycle): TCP probe of
+# ctxd's `/health` endpoint, async sleep between retries. Tauri 2 already
+# pulls tokio into the dep tree; declaring it directly so we can use the
+# `#[tokio::test]` macro and pin the feature set we need.
+tokio = { version = "1", features = ["net", "io-util", "time", "macros", "rt"] }
 
 [features]
 default = ["custom-protocol"]
