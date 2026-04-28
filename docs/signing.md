@@ -112,3 +112,47 @@ If the release is unsigned, add this to the release notes so users aren't stuck:
 ## When to flip to signed
 
 As soon as the Apple Developer enrollment clears and you've added the six secrets, the next `v*` tag pushes a signed build automatically. No workflow changes required.
+
+---
+
+## Tauri auto-update signing (independent of Apple notarization)
+
+Keepr's auto-updater plugin (Tauri v2) verifies every downloaded bundle against a signing public key embedded in the binary. This is a separate trust chain from Apple code signing — it lets the app refuse a malicious bundle that somehow lands at our GitHub Releases URL. Both signatures are independent: the app can be Apple-signed-and-notarized, Tauri-signed, both, or (today) only Tauri-signed. The auto-updater requires Tauri signing regardless of Apple status.
+
+### One-time keypair generation
+
+Run this once on a developer machine you trust. The private key never leaves that machine — it gets uploaded to GitHub Actions as a secret, not committed.
+
+```bash
+mkdir -p ~/.tauri
+npx @tauri-apps/cli signer generate -w ~/.tauri/keepr-updater.key
+# Choose a strong password when prompted. Save it somewhere safe (1Password, etc).
+```
+
+The command prints two things:
+
+1. **Public key** — paste this into `src-tauri/tauri.conf.json` under `plugins.updater.pubkey`, replacing the `REPLACE_ME_WITH_TAURI_SIGNER_PUBLIC_KEY` placeholder.
+2. **Private key path** — `~/.tauri/keepr-updater.key`. Do NOT commit this file.
+
+### GitHub Actions secrets
+
+Set both in the repo's Settings → Secrets and variables → Actions:
+
+- `TAURI_SIGNING_PRIVATE_KEY` — paste the **contents** of `~/.tauri/keepr-updater.key` (not the path)
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` — the password you chose above
+
+`tauri-action` picks both up automatically when `bundle.createUpdaterArtifacts` is `true` in `tauri.conf.json` (already set). The CI build emits `Keepr.app.tar.gz`, `.sig`, and `latest.json` alongside the DMG, all attached to the GitHub Release.
+
+### Key rotation
+
+If the private key is ever compromised:
+
+1. Generate a new keypair (same `signer generate` command).
+2. Update both GitHub secrets.
+3. Update `pubkey` in `tauri.conf.json` and ship a new release.
+
+Existing installs running with the old pubkey will refuse the new bundle — those users have to upgrade once via Homebrew or DMG to pick up the new pubkey, then auto-update resumes. Same one-time-tax dynamic as the original updater bootstrap.
+
+### Why this matters
+
+Without Tauri signing, anyone who can publish to our GitHub Releases (compromised CI, social-engineered maintainer) could push a malicious bundle that every Keepr user auto-installs. With it, the bundle is rejected unless the signature matches a key only we hold. This is the entire reason Tauri requires signed updater bundles by default.
