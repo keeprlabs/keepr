@@ -2,6 +2,11 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
+## v0.2.5 — Codex Provider + Team member smart selection  (2026-04-28)
+
+### Codex Provider + Team member smart selection
+
+
 ## v0.2.1 — Claude Code Plugin (2026-04-18)
 
 ### CLI surface
