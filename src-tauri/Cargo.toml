@@ -49,3 +49,16 @@ thiserror = "2"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+# v0.2.7+: criterion benchmark for memory_query latency at 1k/10k/50k
+# events. Spawns a real ctxd daemon — see benches/memory_query.rs.
+# Run: `cargo bench --bench memory_query`
+criterion = { version = "0.5", default-features = false, features = ["async_tokio"] }
+tempfile = "3"
+portpicker = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[[bench]]
+name = "memory_query"
+harness = false
