@@ -53,6 +53,11 @@ interface Props {
   members: TeamMember[];
   onRetry?: (session: SessionRow) => void;
   onDelete?: (id: number) => void;
+  /** v0.2.7+: open the right-edge RelatedPanel for this evidence's
+   *  ctxd subject. App.tsx wires it to `setRelatedSubject`. Only
+   *  surfaces on evidence rows that have a `subject_path` (forward-only,
+   *  populated since v0.2.7 PR 3). */
+  onOpenRelated?: (subjectPath: string) => void;
 }
 
 export function SessionReader({
@@ -62,6 +67,7 @@ export function SessionReader({
   members,
   onRetry,
   onDelete,
+  onOpenRelated,
 }: Props) {
   const targetMember = useMemo(
     () =>
@@ -437,6 +443,22 @@ ${rendered}
                       >
                         open ↗
                       </button>
+                      {ev.subject_path && onOpenRelated && (
+                        <>
+                          <span className="text-ink-ghost">·</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpenRelated(ev.subject_path!);
+                            }}
+                            className="text-ink-muted transition-colors duration-180 hover:text-ink"
+                            aria-label="Show related memory"
+                            title="Show related memory"
+                          >
+                            related ⇢
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
