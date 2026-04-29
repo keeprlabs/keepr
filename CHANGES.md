@@ -2,6 +2,12 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
+## v0.2.6 — keepr auto updater (2026-04-29)
+
+### keepr auto updater
+
+- Pushes updates to users on older versions
+
 ## v0.2.5 — Codex Provider + Team member smart selection  (2026-04-28)
 
 ### Codex Provider + Team member smart selection

@@ -1,6 +1,6 @@
 [package]
 name = "keepr"
-version = "0.2.5"
+version = "0.2.6"
 description = "Keepr — AI Chief of Staff for Engineering Managers"
 authors = ["Keepr"]
 edition = "2021"
