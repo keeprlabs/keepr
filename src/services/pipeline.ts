@@ -42,7 +42,7 @@ import {
 import { fetchProjectActivity, type FetchedJiraIssue } from "./jira";
 import { fetchTeamActivity, type FetchedLinearIssue } from "./linear";
 import { getProvider, setCustomConfig } from "./llm";
-import { writeMemory, readMemoryContext } from "./memory";
+import { writeMemory, readMemoryContext, dualWriteEvidenceBatch } from "./memory";
 import { evidenceSubjectFor } from "./ctxSubjects";
 import { throwIfAborted, isAbortError } from "../lib/abort";
 import { info as logInfo, warn as logWarn } from "@tauri-apps/plugin-log";
@@ -914,20 +914,26 @@ export async function runWorkflow(opts: RunOptions): Promise<PulseOutcome> {
       item,
     }));
 
-    await insertEvidence(
-      sessionId,
-      withIds.map(({ item, actor }) => ({
-        source: item.source,
-        source_url: item.source_url,
-        source_id: item.source_id,
-        actor_member_id: actor?.id ?? null,
-        timestamp_at: item.timestamp_at,
-        content: item.content,
-        // v0.2.7+: compute the ctxd subject path so PR 10 can render
-        // citation chips that pivot to the canonical event. NULL is
-        // fine when the source has no defined mapping yet.
-        subject_path: evidenceSubjectFor(item.source, item.source_id, item.source_url),
-      }))
+    const evidenceRows = withIds.map(({ item, actor }) => ({
+      source: item.source,
+      source_url: item.source_url,
+      source_id: item.source_id,
+      actor_member_id: actor?.id ?? null,
+      timestamp_at: item.timestamp_at,
+      content: item.content,
+      // v0.2.7+: compute the ctxd subject path so PR 10 can render
+      // citation chips that pivot to the canonical event. NULL is
+      // fine when the source has no defined mapping yet.
+      subject_path: evidenceSubjectFor(item.source, item.source_id, item.source_url),
+    }));
+    await insertEvidence(sessionId, evidenceRows);
+
+    // v0.2.7+: dual-write evidence into ctxd so the memory layer has
+    // real GitHub/Slack/Jira/Linear/GitLab content to surface in
+    // MemorySearch and the cmd+k palette. Fire-and-forget per session;
+    // see dualWriteEvidenceBatch in memory.ts.
+    void dualWriteEvidenceBatch(evidenceRows).catch((err) =>
+      logWarn(`evidence dual-write failed: ${err instanceof Error ? err.message : String(err)}`)
     );
 
     // Group by bucket for the map step.

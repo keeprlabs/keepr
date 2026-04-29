@@ -535,3 +535,58 @@ function sessionSlugFor(workflow: WorkflowType, targetSlug: string | null): stri
       return workflow;
   }
 }
+
+// ---------- ctxd dual-write — evidence (v0.2.7 PR 4) ----------------------
+//
+// Mirror the SQLite `evidence_items` insert into ctxd events under the
+// canonical subject for that source. Lets MemorySearch / cmd+k palette
+// surface real GitHub/Slack/Jira/Linear/GitLab content alongside the
+// session/topic/person events from dualWriteSession.
+//
+// Same kill-switch (app_config.memory_dual_write). Same Promise.allSettled
+// failure tolerance — markdown + SQLite are canonical, ctxd is the index.
+
+interface EvidenceRowForBridge {
+  source: string;
+  source_url: string;
+  source_id: string;
+  actor_member_id: number | null;
+  timestamp_at: string;
+  content: string;
+  subject_path: string | null;
+}
+
+export async function dualWriteEvidenceBatch(
+  rows: EvidenceRowForBridge[]
+): Promise<void> {
+  const cfg = await getConfig();
+  if (!cfg.memory_dual_write) return;
+  if (!rows.length) return;
+
+  const writes: Array<Promise<unknown>> = [];
+  for (const row of rows) {
+    if (!row.subject_path) continue; // No mapping — skip until we add one.
+    writes.push(
+      memoryWrite(row.subject_path, "evidence.recorded", {
+        schema_version: SCHEMA_VERSION,
+        source: row.source,
+        source_url: row.source_url,
+        source_id: row.source_id,
+        actor_member_id: row.actor_member_id,
+        timestamp_at: row.timestamp_at,
+        // Keep the payload small — just enough to render in MemorySearch.
+        // Full content stays in evidence_items for citation rendering.
+        content_snippet: (row.content || "").slice(0, 280),
+      })
+    );
+  }
+
+  if (!writes.length) return;
+  const results = await Promise.allSettled(writes);
+  const failures = results.filter((r) => r.status === "rejected");
+  if (failures.length) {
+    logWarn(
+      `evidence dual-write: ${failures.length}/${results.length} events did not land — daemon offline?`
+    );
+  }
+}
