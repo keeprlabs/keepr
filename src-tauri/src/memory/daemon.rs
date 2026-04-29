@@ -214,23 +214,43 @@ async fn probe_once(port: u16) -> Result<()> {
         .context("tcp connect")?;
     let req = b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     stream.write_all(req).await.context("write req")?;
-    let mut buf = Vec::with_capacity(256);
-    // Read just enough to see the status line and a bit of body.
-    let mut tmp = [0u8; 256];
+
+    // Only read enough to verify the HTTP status line. Reading further
+    // races against `Connection: close` peers (and aggressive `shutdown()`
+    // on macOS), which can surface as ECONNRESET on the next read even
+    // when the response body is intact. The status line is in the first
+    // ~16 bytes; 64 is plenty of slack.
+    let mut buf = [0u8; 64];
     let mut total = 0;
-    while total < 256 {
-        let n = stream.read(&mut tmp).await.context("read resp")?;
-        if n == 0 {
-            break;
+    while total < buf.len() {
+        match stream.read(&mut buf[total..]).await {
+            Ok(0) => break,
+            Ok(n) => {
+                total += n;
+                if total >= 12 {
+                    // Have at least "HTTP/x.x NNN" — enough to decide.
+                    break;
+                }
+            }
+            Err(e) if total > 0 => {
+                // Tolerate peer reset *after* we've already seen data.
+                // Common on macOS when the server `shutdown()`s right
+                // after writing the response.
+                log::debug!(target: "memory::daemon", "peer reset after {total} bytes: {e}");
+                break;
+            }
+            Err(e) => return Err(anyhow::Error::from(e).context("read resp")),
         }
-        buf.extend_from_slice(&tmp[..n]);
-        total += n;
     }
-    let head = String::from_utf8_lossy(&buf);
+
+    let head = String::from_utf8_lossy(&buf[..total]);
     if head.starts_with("HTTP/1.1 200") || head.starts_with("HTTP/1.0 200") {
         Ok(())
     } else {
-        Err(anyhow!("unexpected response: {}", head.lines().next().unwrap_or("")))
+        Err(anyhow!(
+            "unexpected response: {}",
+            head.lines().next().unwrap_or("")
+        ))
     }
 }
 
@@ -247,7 +267,9 @@ mod tests {
             loop {
                 if let Ok((mut sock, _)) = listener.accept().await {
                     let _ = sock.write_all(response).await;
-                    let _ = sock.shutdown().await;
+                    // Drop the socket — let TCP FIN happen naturally.
+                    // Calling `shutdown()` here races against the client's
+                    // read on macOS and can surface as ECONNRESET.
                 }
             }
         });
