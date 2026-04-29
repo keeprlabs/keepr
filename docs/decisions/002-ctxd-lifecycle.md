@@ -9,7 +9,7 @@
 
 ## Context
 
-v0.2.6 introduces ctxd (`keeprlabs/ctxd`, Apache-2.0, Rust) as Keepr's memory substrate. ctxd is a single-binary daemon that exposes hybrid search, an event log, and an MCP server. Keepr's Rust backend will broker every ctxd call from the React frontend.
+v0.2.7 introduces ctxd (`keeprlabs/ctxd`, Apache-2.0, Rust) as Keepr's memory substrate. ctxd is a single-binary daemon that exposes hybrid search, an event log, and an MCP server. Keepr's Rust backend will broker every ctxd call from the React frontend.
 
 We need to decide:
 1. How ctxd is packaged (linked crate vs. sidecar binary).
@@ -69,7 +69,7 @@ The frontend can call `memory_status` at any time to read daemon state. When sta
 
 If the daemon crashes mid-session (detected via failed health probe or broken pipe on a command), the manager restarts it once with 1s backoff. A second consecutive failure flips state to `Offline` and surfaces a non-blocking banner: *"Memory layer offline — using last-known context. Click to retry."*
 
-The pre-ctxd markdown-tail path in `pipeline.ts` remains the fallback for v0.2.6, so the app is never fully broken.
+The pre-ctxd markdown-tail path in `pipeline.ts` remains the fallback for v0.2.7, so the app is never fully broken.
 
 ### 5. Upgrade story: `ctxd migrate` before `serve`
 
@@ -121,7 +121,7 @@ Rejected. Adds Rust toolchain as a runtime dependency for users, ~5 minute insta
 
 ### D. Vendor binaries committed to the repo
 
-Rejected for v0.2.6. Adds ~80 MB of binary commits per ctxd release. Fetch-on-build keeps the repo clean and works deterministically. Revisit if CI build times become a problem.
+Rejected for v0.2.7. Adds ~80 MB of binary commits per ctxd release. Fetch-on-build keeps the repo clean and works deterministically. Revisit if CI build times become a problem.
 
 ## Validation
 

@@ -1,6 +1,6 @@
 # ctxd as Keepr's Default Memory Store
 
-**Target releases:** v0.2.6 (foundation + visible wins), v0.3.0 (graph + dedup + external MCP), v0.4 (pipeline swap + bulk markdown import).
+**Target releases:** v0.2.7 (foundation + visible wins), v0.3.0 (graph + dedup + external MCP), v0.4 (pipeline swap + bulk markdown import).
 
 **Status:** plan locked, awaiting answers on three open questions before first PR (see end).
 
@@ -11,8 +11,8 @@
 1. **ctxd is `keeprlabs/ctxd`** — Rust, Apache-2.0, single binary, MCP-native, SQLite/FTS5/HNSW under the hood, GitHub + Gmail adapters already shipped upstream.
 2. **Tauri sidecar binary**, not linked crate. Lifecycle managed in `src-tauri/src/memory/daemon.rs`. Bound to loopback only.
 3. **Two SQLite files.** `keepr.db` keeps mutable operational state (sessions, secrets, followups, fetch_cache). `ctxd.db` is the append-only memory log. Linked via `source_uri` on `evidence_items`.
-4. **Side-by-side, no markdown migration in v0.2.6.** Forward-only writes. Markdown stays canonical. GitHub history is **re-ingested** by `ctxd-adapter-github` (not migrated). Bulk markdown → ctxd import lands in v0.4 once the schema is proven.
-5. **`pipeline.ts` stays on the markdown tail in v0.2.6.** The prompt-builder swap to `ctx_search` lands in v0.4 alongside markdown bulk import — when ctxd has real content. v0.2.6 ships UI value, not prompt changes.
+4. **Side-by-side, no markdown migration in v0.2.7.** Forward-only writes. Markdown stays canonical. GitHub history is **re-ingested** by `ctxd-adapter-github` (not migrated). Bulk markdown → ctxd import lands in v0.4 once the schema is proven.
+5. **`pipeline.ts` stays on the markdown tail in v0.2.7.** The prompt-builder swap to `ctx_search` lands in v0.4 alongside markdown bulk import — when ctxd has real content. v0.2.7 ships UI value, not prompt changes.
 6. **Embedder = `null` (FTS-only) by default.** Ollama / OpenAI opt-in lands in v0.3.0. BM25 over names, repo IDs, and ticket IDs covers ~80% of real queries.
 7. **Rust backend brokers all ctxd calls.** Frontend never touches ctxd directly. Capability tokens, ports, and error normalization live in Rust. Mirrors the `secrets.rs` pattern.
 8. **MCP is the LLM exposure surface.** Internal: `pipeline.ts` calls ctxd directly via the Tauri broker (no MCP roundtrip — it's the same process boundary). External: opt-in toggle lands in v0.3.0 with biscuit-scoped read-only access.
@@ -70,7 +70,7 @@ React component
         → ctxd daemon                   // SQLite
 ```
 
-Exposed Tauri commands (v0.2.6):
+Exposed Tauri commands (v0.2.7):
 
 | Command | Purpose |
 |---|---|
@@ -126,7 +126,7 @@ UI clicks an evidence row → reads `subject_path` → calls `memory_read(subjec
 
 ---
 
-## v0.2.6 — three weeks, twelve PRs
+## v0.2.7 — three weeks, twelve PRs
 
 Sized S (1-2d), M (3-5d). Two engineers parallel after foundation.
 
@@ -199,7 +199,7 @@ PR 1 ──▶ PR 2 ──┬──▶ PR 3 ──┬──▶ PR 7
 
 Two engineers can run weeks 2-3 in parallel: one on PR 3 → 7 → 10, the other on PR 4 → 8 → 9. PRs 5, 6, 11 fit between.
 
-### v0.2.6 ships with
+### v0.2.7 ships with
 
 - ctxd daemon as substrate, invisible to users.
 - Forward-only writes to ctxd from session boundaries.
@@ -212,7 +212,7 @@ Two engineers can run weeks 2-3 in parallel: one on PR 3 → 7 → 10, the other
 
 ## v0.3.0 — graph + dedup + external MCP
 
-Roughly 4 weeks after v0.2.6.
+Roughly 4 weeks after v0.2.7.
 
 1. **`feat/memory-graph`** — `ThreadGraph.tsx` upgrade using `ctx_related`, `ctx_entities`. Cross-source neighborhoods (PR ↔ ticket ↔ person ↔ session).
 2. **`feat/memory-decay-dedup`** — re-ranker wrapping `ctx_search` (`final = rrf * exp(-Δdays/60)`). Weekly consolidation pass writes `topic.consolidated` events with `supersedes: [...]` field. Materialized views ignore superseded events. Memory health Settings page.
@@ -274,7 +274,7 @@ Recommendation: build in CI. Eliminates large committed binaries, guarantees rep
 4. **GitHub re-ingest on first launch is slow for heavy users.** 10-30 min in background. *Mitigation:* progress banner; results in Memory Search arrive incrementally; user can dismiss banner and keep working.
 5. **Bundle size growth.** ctxd binary adds ~15-25 MB per platform. *Mitigation:* monitor DMG size in CI, alert if total grows past 80 MB net add.
 
-### Kill criteria (review at week 6 post-v0.2.6)
+### Kill criteria (review at week 6 post-v0.2.7)
 
 If any **two** hit, flip `app_config.memory.dualWrite=false` for everyone via remote config and ship v0.2.7 with rollback:
 
@@ -284,7 +284,7 @@ If any **two** hit, flip `app_config.memory.dualWrite=false` for everyone via re
 - Bundle size DMG net add > 80 MB.
 - User reports of lost data (any number > 0 — markdown is canonical so this should be impossible, but verify).
 
-A `app_config.memory.remoteKillSwitch` flag must exist from v0.2.6 day 1.
+A `app_config.memory.remoteKillSwitch` flag must exist from v0.2.7 day 1.
 
 ---
 
@@ -292,16 +292,16 @@ A `app_config.memory.remoteKillSwitch` flag must exist from v0.2.6 day 1.
 
 1. **Person subject IDs — UUID.** Path is `/keepr/people/{uuid}`. Display name written as `person.created` event field; rename writes a `person.updated` event without changing the subject. `team_members` table gains a `ctxd_uuid` column (migration #10) populated lazily on first event write per person. Slug stays for human-readable URLs in the UI, resolved via `team_members.slug → ctxd_uuid` lookup.
 
-2. **GitHub re-ingest default — on, with dismissible banner.** Background ingest starts on first v0.2.6 launch. Banner reads "Memory is rebuilding from your GitHub history. Search results will fill in over the next ~10 minutes." Dismissible. Status from `memory_status`. Settings → Memory → "Pause re-ingest" if a user wants to halt mid-flight.
+2. **GitHub re-ingest default — on, with dismissible banner.** Background ingest starts on first v0.2.7 launch. Banner reads "Memory is rebuilding from your GitHub history. Search results will fill in over the next ~10 minutes." Dismissible. Status from `memory_status`. Settings → Memory → "Pause re-ingest" if a user wants to halt mid-flight.
 
-3. **Federation — deferred to v0.5+.** Not surfaced in v0.2.6, v0.3.0, or v0.4. ctxd's federation primitives (peer, replicate, biscuit handoff) stay internal substrate. Revisit when the rest of the integration is proven.
+3. **Federation — deferred to v0.5+.** Not surfaced in v0.2.7, v0.3.0, or v0.4. ctxd's federation primitives (peer, replicate, biscuit handoff) stay internal substrate. Revisit when the rest of the integration is proven.
 
 ---
 
 ## What this plan saves vs. the original migration-first design
 
-- **One M-sized PR cut** (`feat/memory-migrate` removed from v0.2.6, deferred to v0.4).
-- **~3-5 days of engineering** in v0.2.6.
+- **One M-sized PR cut** (`feat/memory-migrate` removed from v0.2.7, deferred to v0.4).
+- **~3-5 days of engineering** in v0.2.7.
 - **A class of "import lost X" bugs** that would require markdown-walking edge-case code.
 - **Schema-rewrite risk** — by v0.4 we'll have lived with the schema in production for two releases.
 - **Decision-making weight** — we get to learn from real ctxd usage data before deciding what's worth importing. Some markdown sessions older than 90 days may never get queried, in which case we never bother importing them.
