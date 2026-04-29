@@ -3,7 +3,7 @@
 //! See `tasks/ctxd-integration.md` (overall plan) and
 //! `docs/decisions/002-ctxd-lifecycle.md` (lifecycle ADR).
 //!
-//! v0.2.6 PR 1 ships only the daemon lifecycle and a `memory_status` command.
+//! v0.2.7 PR 1 ships only the daemon lifecycle and a `memory_status` command.
 //! Subsequent PRs add `memory_query`, `memory_read`, `memory_write`, etc.
 
 pub mod daemon;

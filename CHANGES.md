@@ -2,11 +2,14 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
-## v0.2.6 — ctxd memory layer (Unreleased)
+## v0.2.7 — ctxd memory layer (Unreleased)
 
 Bundling [`keeprlabs/ctxd`](https://github.com/keeprlabs/ctxd) v0.3.0 as
 Keepr's default memory substrate. Side-by-side with the existing markdown
-store (no migration in v0.2.6) — see `tasks/ctxd-integration.md`.
+store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
+
+> NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
+> plugin). This is a separate, independent milestone. Both ship.
 
 ### PR 1 — `feat/ctxd-bundle`
 

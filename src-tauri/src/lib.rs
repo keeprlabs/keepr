@@ -276,7 +276,7 @@ ALTER TABLE team_members ADD COLUMN gitlab_username TEXT;
             version: 9,
             description: "evidence_subject_path",
             kind: MigrationKind::Up,
-            // v0.2.6: every evidence row gets a ctxd subject path so the UI
+            // v0.2.7: every evidence row gets a ctxd subject path so the UI
             // can pivot from a citation back to the canonical event. Column
             // is nullable; populated forward-only by the dual-write in PR 3.
             // Older rows stay NULL until the v0.4 markdown bulk-import lands.
@@ -289,7 +289,7 @@ CREATE INDEX IF NOT EXISTS idx_evidence_subject_path ON evidence_items(subject_p
             version: 10,
             description: "team_member_ctxd_uuid",
             kind: MigrationKind::Up,
-            // v0.2.6: stable UUID per person used as the ctxd subject ID
+            // v0.2.7: stable UUID per person used as the ctxd subject ID
             // (`/keepr/people/{uuid}`). Slugs stay for human-readable URLs
             // but are not used as ctxd subjects — see ADR-001 once written.
             // Populated lazily on first event write per person.
@@ -336,7 +336,7 @@ pub fn run() {
             // screen does not block on the health probe. Failures
             // transition the handle to Offline and surface via
             // `memory_status`; the rest of the app continues to work
-            // (markdown-tail path remains the v0.2.6 prompt builder).
+            // (markdown-tail path remains the v0.2.7 prompt builder).
             app.manage(memory::DaemonHandle::new());
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
