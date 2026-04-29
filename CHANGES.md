@@ -11,6 +11,24 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 7 — `feat/person-page-ctxd`
+
+- New `MemoryLayerSection` component appended to `PersonDetail` below
+  the existing fact timeline. Calls `memoryRead(personSubject(uuid))`
+  for members whose `ctxd_uuid` is populated; renders rows with the
+  same row-hover styling as the rest of the screen.
+- Lazy `ctxd_uuid`: when null (member hasn't been seen by a session
+  run since v0.2.7 deployed), the section renders a "appears after
+  next session run" hint instead of an error.
+- Each row click opens the RelatedPanel for that subject. Section
+  header carries a "related ⇢" affordance for the person itself.
+- Offline / error states render quietly without breaking the page.
+- App.tsx threads `onOpenSubject` through to `setRelatedSubject`.
+- No dedicated test file: composed of well-tested pieces (memoryRead,
+  personSubject, isEmptyResult/isTransientError); writing PersonDetail
+  mocks would require rebuilding LLM/db/markdown harnesses for marginal
+  signal. Integration coverage via RelatedPanel + ctxStore tests.
+
 ### PR 4 — `feat/memory-evidence-bridge`
 
 - New `dualWriteEvidenceBatch()` in `src/services/memory.ts` mirrors
