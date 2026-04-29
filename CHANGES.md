@@ -11,6 +11,26 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 8 — `feat/related-panel`
+
+- New `src/components/RelatedPanel.tsx` — right-edge panel that opens
+  when a memory subject is selected (currently from MemorySearch row
+  clicks; PR 10 will also wire it to pulse-citation chips).
+- Calls `memory_related(subject)`. Groups results by `data.relation`
+  field (when ctxd-adapter writes one) or by `event_type` as fallback.
+- Empty / not_yet_supported / offline / internal-error states each
+  render distinct messaging — never a toast, never a crash.
+- Wired in App.tsx as a single `relatedSubject` state; MemorySearch's
+  `onOpenSubject` opens the panel; the panel's row click drills into
+  another subject without closing.
+- 11 new vitest tests (319 total): covers null-subject (renders
+  nothing), empty array, not_yet_supported, offline, internal,
+  grouping by relation field, fallback grouping by event_type, click
+  drilldown, close button, re-fetch on subject change.
+- Note: `memory_related` returns `NotYetSupported` against the v0.3.0
+  ctxd SDK. The panel renders "Coming soon" until v0.4 SDK lands —
+  scaffolding ships now so the upgrade is a single dep bump.
+
 ### PR 6 — `feat/memory-search`
 
 - New screen `src/screens/MemorySearch.tsx` — full-results view backed

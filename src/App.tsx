@@ -7,6 +7,7 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar, type ViewKey } from "./components/Sidebar";
 import { CommandPalette, type CommandAction } from "./components/CommandPalette";
+import { RelatedPanel } from "./components/RelatedPanel";
 import { SessionReader } from "./components/SessionReader";
 import { PersonDetail } from "./components/PersonDetail";
 import { RunOverlay, type RunState } from "./components/RunOverlay";
@@ -61,6 +62,10 @@ export default function App() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // v0.2.7+: subject currently shown in the right-hand RelatedPanel.
+  // Null = panel hidden. Opened from MemorySearch row clicks (and, in
+  // PR 10, from pulse-citation chips).
+  const [relatedSubject, setRelatedSubject] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [runState, setRunState] = useState<RunState | null>(null);
   const runControllerRef = useRef<AbortController | null>(null);
@@ -684,9 +689,7 @@ export default function App() {
               members={members}
               initialQuery={view.q}
               initialSubject={view.subject}
-              onOpenSubject={(s) =>
-                setView({ kind: "memory_search", subject: s })
-              }
+              onOpenSubject={(s) => setRelatedSubject(s)}
             />
           )}
           </div>
@@ -710,6 +713,11 @@ export default function App() {
         onCancel={cancelRun}
         onTryLongerWindow={handleTryLongerWindow}
         onFixInSettings={handleFixInSettings}
+      />
+      <RelatedPanel
+        subject={relatedSubject}
+        onClose={() => setRelatedSubject(null)}
+        onOpenSubject={(s) => setRelatedSubject(s)}
       />
       {demoMode && <DemoPill onExit={handleExitDemo} />}
     </div>
