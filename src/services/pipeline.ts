@@ -43,6 +43,7 @@ import { fetchProjectActivity, type FetchedJiraIssue } from "./jira";
 import { fetchTeamActivity, type FetchedLinearIssue } from "./linear";
 import { getProvider, setCustomConfig } from "./llm";
 import { writeMemory, readMemoryContext } from "./memory";
+import { evidenceSubjectFor } from "./ctxSubjects";
 import { throwIfAborted, isAbortError } from "../lib/abort";
 import { info as logInfo, warn as logWarn } from "@tauri-apps/plugin-log";
 import {
@@ -922,6 +923,10 @@ export async function runWorkflow(opts: RunOptions): Promise<PulseOutcome> {
         actor_member_id: actor?.id ?? null,
         timestamp_at: item.timestamp_at,
         content: item.content,
+        // v0.2.7+: compute the ctxd subject path so PR 10 can render
+        // citation chips that pivot to the canonical event. NULL is
+        // fine when the source has no defined mapping yet.
+        subject_path: evidenceSubjectFor(item.source, item.source_id, item.source_url),
       }))
     );
 

@@ -230,6 +230,38 @@ export async function deleteSession(id: number): Promise<void> {
   await d.execute("DELETE FROM sessions WHERE id = ?", [id]);
 }
 
+/**
+ * v0.2.7+: lazily populate `team_members.ctxd_uuid` so the person has a
+ * stable ctxd subject id (`/keepr/people/{uuid}`). Returns the existing
+ * uuid if set, or generates one via `crypto.randomUUID()` and persists.
+ *
+ * Idempotent under concurrent calls — the `UNIQUE` index on `ctxd_uuid`
+ * keeps races safe; the worst-case is two callers both generate, one
+ * insert wins, the loser re-reads.
+ */
+export async function ensureCtxdUuid(memberId: number): Promise<string> {
+  const d = await db();
+  const rows = await d.select<Array<{ ctxd_uuid: string | null }>>(
+    "SELECT ctxd_uuid FROM team_members WHERE id = ?",
+    [memberId]
+  );
+  if (!rows.length) {
+    throw new Error(`ensureCtxdUuid: no team_member with id=${memberId}`);
+  }
+  if (rows[0].ctxd_uuid) return rows[0].ctxd_uuid;
+  const uuid = crypto.randomUUID();
+  await d.execute(
+    "UPDATE team_members SET ctxd_uuid = ? WHERE id = ? AND ctxd_uuid IS NULL",
+    [uuid, memberId]
+  );
+  // Re-read to handle the rare race where two callers both generated.
+  const after = await d.select<Array<{ ctxd_uuid: string | null }>>(
+    "SELECT ctxd_uuid FROM team_members WHERE id = ?",
+    [memberId]
+  );
+  return after[0].ctxd_uuid ?? uuid;
+}
+
 // ---- Evidence ------------------------------------------------------------
 
 export async function insertEvidence(
@@ -240,7 +272,7 @@ export async function insertEvidence(
   const out: EvidenceItem[] = [];
   for (const it of items) {
     const res = await d.execute(
-      "INSERT INTO evidence_items(session_id, source, source_url, source_id, actor_member_id, timestamp_at, content) VALUES(?,?,?,?,?,?,?)",
+      "INSERT INTO evidence_items(session_id, source, source_url, source_id, actor_member_id, timestamp_at, content, subject_path) VALUES(?,?,?,?,?,?,?,?)",
       [
         session_id,
         it.source,
@@ -249,6 +281,7 @@ export async function insertEvidence(
         it.actor_member_id,
         it.timestamp_at,
         it.content,
+        it.subject_path ?? null,
       ]
     );
     out.push({ id: res.lastInsertId as number, session_id, ...it });

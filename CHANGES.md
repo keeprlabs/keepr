@@ -11,6 +11,34 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 3 — `feat/memory-subjects`
+
+- New `src/services/ctxSubjects.ts` — canonical subject path builders for
+  every Keepr concept (person, session, topic, follow-up, status, evidence
+  bridge), `EVENT_TYPES` vocabulary, `SCHEMA_VERSION = 1`. Public contract;
+  see ADR-001.
+- New `docs/decisions/001-ctxd-subject-schema.md` — locks the schema.
+  UUIDs for person ids (not slugs); `/keepr/**` for Keepr-domain events,
+  `/work/**` reserved for adapter-owned namespaces, `/keepr/evidence/**`
+  as the bridge until upstream ctxd adapters ship.
+- New `db.ts ensureCtxdUuid(memberId)` lazy-populates `team_members.ctxd_uuid`
+  on first event-write per person.
+- `EvidenceItem.subject_path` populated on insert via `evidenceSubjectFor()`.
+  Migration #9 column finally has a writer; PR 10 will read it for
+  citation chips.
+- `pipeline.ts insertEvidence` now passes `subject_path` for every row.
+- `AppConfig.memory_dual_write` (default true) — kill switch; markdown
+  remains canonical regardless.
+- `memory.ts dualWriteSession()` — fire-and-forget after the markdown
+  write loop. Emits `session.completed`, `status.updated` (team_pulse /
+  weekly_update only), `person.fact` (per delta line, after lazy uuid
+  lookup), `topic.note` (per parsed topic). All under canonical subjects.
+  Promise.allSettled tolerates per-event offline failures with one warn
+  log.
+- 35 new vitest tests: 24 ctxSubjects (golden + validators + helpers),
+  11 dualWrite (kill switch, per-workflow events, person/topic emission,
+  failure tolerance, schema_version).
+
 ### PR 2 — `feat/memory-commands-skeleton`
 
 - Full Tauri command surface: `memory_query`, `memory_read`, `memory_write`,

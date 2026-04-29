@@ -23,6 +23,11 @@ export interface TeamMember {
   jira_username: string | null;
   linear_username: string | null;
   slug: string;
+  /** v0.2.7+: stable UUID used as the ctxd subject id for this person
+   *  (`/keepr/people/{ctxd_uuid}`). Migration #10 added the column.
+   *  Lazily populated on first event-write per person via
+   *  `ensureCtxdUuid()`. Slugs are still used for human-readable URLs. */
+  ctxd_uuid?: string | null;
 }
 
 export interface SessionRow {
@@ -49,6 +54,11 @@ export interface EvidenceItem {
   actor_member_id: number | null;
   timestamp_at: string;
   content: string;
+  /** v0.2.7+: ctxd subject path for this evidence row (migration #9).
+   *  Null for rows inserted before v0.2.7, or for rows whose source
+   *  doesn't have a defined subject mapping in ctxSubjects.ts. PR 10
+   *  uses this to render citation chips. */
+  subject_path?: string | null;
 }
 
 // What Sonnet sees in the evidence JSON.
@@ -114,6 +124,11 @@ export interface AppConfig {
   onboarded_at: string | null;
   engineering_rubric: string | null;
   feature_flags: FeatureFlags;
+  /** v0.2.7+: when true, every markdown write also fires a fire-and-forget
+   *  ctxd event under the canonical subject path. Default true; flip to
+   *  false to disable the memory-layer dual-write entirely (kill switch).
+   *  Markdown remains canonical regardless. See ADR-001. */
+  memory_dual_write: boolean;
 }
 
 export interface PersonFact {
@@ -175,4 +190,5 @@ export const DEFAULT_CONFIG: AppConfig = {
   onboarded_at: null,
   engineering_rubric: null,
   feature_flags: DEFAULT_FEATURE_FLAGS,
+  memory_dual_write: true,
 };
