@@ -656,6 +656,7 @@ export default function App() {
               members={members}
               onRetry={rerunSession}
               onDelete={deleteSessionAndRefresh}
+              onOpenRelated={(subject) => setRelatedSubject(subject)}
             />
           )}
           {view.kind === "memory" && (

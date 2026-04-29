@@ -11,6 +11,23 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 10 — `feat/pulse-citations`
+
+- `SessionReader` evidence cards gain a `related ⇢` chip next to the
+  existing `open ↗` chip when the row has a `subject_path` (populated
+  by PR 3's dual-write pipeline). Clicking opens the RelatedPanel from
+  PR 8 with that evidence's ctxd subject.
+- New `onOpenRelated` prop on `SessionReader`; App.tsx wires it to
+  `setRelatedSubject`. Same panel-open path as MemorySearch row clicks.
+- Pure rendering change — no prompt edits, no LLM behavior change.
+  Older evidence rows (subject_path NULL) get no chip; v0.4 backfill
+  will populate them.
+- Behavior is covered transitively:
+  - `evidenceSubjectFor` mapping → ctxSubjects tests (24).
+  - `RelatedPanel` open/empty/error states → RelatedPanel tests (11).
+  - The chip itself is a 4-line conditional render; no dedicated test
+    to avoid a heavy SessionReader mock-graph rebuild.
+
 ### PR 8 — `feat/related-panel`
 
 - New `src/components/RelatedPanel.tsx` — right-edge panel that opens
