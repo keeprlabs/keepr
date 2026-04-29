@@ -11,6 +11,23 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 9 — `feat/activity-sidebar`
+
+- New `src/components/ActivitySidebar.tsx` — collapsible right-edge panel
+  with a small `activity ▸` toggle button. Default-collapsed; opens to
+  ~320px wide.
+- Calls `memory_subscribe('/keepr/**')` on open. Until v0.4 SDK exposes
+  the real EventStream, the panel renders a "Coming in v0.4" preview
+  with a "What you'll see" event-type list (github, session, person,
+  follow-up, topic). Engineer-friendly debug line shows the SDK note.
+- Offline / generic-error states render distinct hints; never blocks
+  the rest of the UI.
+- Wired in App.tsx as a globally-affixed component (z-30, below palette
+  and RelatedPanel z-40).
+- 8 new vitest tests (332 total): default-collapsed, no subscribe call
+  before open, default vs custom pattern, stub-preview render, offline
+  hint, generic-error hint, close+reopen flow, header pattern display.
+
 ### PR 7 — `feat/person-page-ctxd`
 
 - New `MemoryLayerSection` component appended to `PersonDetail` below

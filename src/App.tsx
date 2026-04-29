@@ -8,6 +8,7 @@ import { Titlebar } from "./components/Titlebar";
 import { Sidebar, type ViewKey } from "./components/Sidebar";
 import { CommandPalette, type CommandAction } from "./components/CommandPalette";
 import { RelatedPanel } from "./components/RelatedPanel";
+import { ActivitySidebar } from "./components/ActivitySidebar";
 import { SessionReader } from "./components/SessionReader";
 import { PersonDetail } from "./components/PersonDetail";
 import { RunOverlay, type RunState } from "./components/RunOverlay";
@@ -721,6 +722,7 @@ export default function App() {
         onClose={() => setRelatedSubject(null)}
         onOpenSubject={(s) => setRelatedSubject(s)}
       />
+      <ActivitySidebar />
       {demoMode && <DemoPill onExit={handleExitDemo} />}
     </div>
   );
