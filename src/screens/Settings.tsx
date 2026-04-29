@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
+  checkForUpdate,
+  getLastCheckedAt,
+  subscribe as subscribeUpdater,
+  type UpdaterState,
+} from "../services/updater";
+import { CURRENT_VERSION as APP_VERSION } from "../lib/version";
+import {
   getConfig,
   listMembers,
   setConfig,
@@ -957,6 +964,10 @@ export function Settings({
           </div>
         </Panel>
 
+        <Panel title="App">
+          <AppPanel />
+        </Panel>
+
         <Panel title="Experimental">
           <p className="mb-4 text-xs text-ink-faint">
             Toggle new features. All are enabled by default.
@@ -1021,7 +1032,68 @@ const PANEL_ICONS: Record<string, React.ReactNode> = {
       <path d="M5 10h6" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
     </svg>
   ),
+  App: (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="2" y="2" width="12" height="12" rx="2.5" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M5 8l2 2 4-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
 };
+
+// App panel — current version + manual "Check for updates". The actual
+// check/download logic lives in services/updater.ts; this is just a
+// view onto its singleton so users impatient with the 6h auto-check
+// can poke it manually. Banner-driven UI stays in <UpdateBanner>.
+function AppPanel() {
+  const [updaterState, setUpdaterState] = useState<UpdaterState>({ kind: "idle" });
+  const [lastChecked, setLastChecked] = useState<string | null>(() => {
+    const ts = getLastCheckedAt();
+    return ts ? new Date(ts).toLocaleString() : null;
+  });
+
+  useEffect(() => {
+    return subscribeUpdater((s) => {
+      setUpdaterState(s);
+      const ts = getLastCheckedAt();
+      if (ts) setLastChecked(new Date(ts).toLocaleString());
+    });
+  }, []);
+
+  const onCheck = async () => {
+    // Force = bypass the session-running deferral. If the user clicked
+    // "Check for updates" manually, they want a result.
+    await checkForUpdate({ force: true });
+  };
+
+  const checking = updaterState.kind === "checking";
+  let message: string | null = null;
+  if (updaterState.kind === "ready") {
+    message = `v${updaterState.version} is downloaded. The banner will prompt to restart.`;
+  } else if (updaterState.kind === "fallback") {
+    message = `v${updaterState.version} is available. Run brew upgrade --cask keepr.`;
+  } else if (updaterState.kind === "current") {
+    message = `You're on the latest version (v${APP_VERSION}).`;
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-[120px_1fr] items-baseline gap-x-4 gap-y-2 text-xs">
+        <span className="text-ink-faint">Version</span>
+        <span className="mono text-ink">v{APP_VERSION}</span>
+        <span className="text-ink-faint">Channel</span>
+        <span className="mono text-ink">stable</span>
+        <span className="text-ink-faint">Last checked</span>
+        <span className="text-ink">{lastChecked || "never"}</span>
+      </div>
+      <div className="flex items-center gap-3 pt-1">
+        <Ghost onClick={onCheck} disabled={checking}>
+          {checking ? "Checking…" : "Check for updates"}
+        </Ghost>
+        {message && <span className="text-xs text-ink-soft">{message}</span>}
+      </div>
+    </div>
+  );
+}
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   const icon = PANEL_ICONS[title];
