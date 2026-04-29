@@ -11,6 +11,24 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 4 — `feat/memory-evidence-bridge`
+
+- New `dualWriteEvidenceBatch()` in `src/services/memory.ts` mirrors
+  every `evidence_items` insert into a ctxd `evidence.recorded` event
+  under the row's `subject_path`. Surfaces real GitHub/Slack/Jira/
+  Linear/GitLab content in MemorySearch and the cmd+k palette.
+- Wired into `pipeline.ts` immediately after `insertEvidence` returns
+  — same fire-and-forget Promise.allSettled pattern as session events.
+- Bridge namespace `/keepr/evidence/{source}/...` (not `/work/{source}`)
+  per ADR-001, leaving room for a future ctxd-adapter-* binary to
+  own the canonical `/work` namespace and a one-time consolidation pass.
+- Renamed from "GitHub bridge" to "evidence bridge" in scope —
+  evidenceSubjectFor handles all five non-adapter sources, not just
+  GitHub.
+- 6 new vitest tests (324 total): kill-switch off, empty input,
+  null subject_path skip, content_snippet truncation, partial-failure
+  tolerance, all-skipped no-warn.
+
 ### PR 10 — `feat/pulse-citations`
 
 - `SessionReader` evidence cards gain a `related ⇢` chip next to the
