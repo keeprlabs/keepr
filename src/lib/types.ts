@@ -129,6 +129,10 @@ export interface AppConfig {
    *  false to disable the memory-layer dual-write entirely (kill switch).
    *  Markdown remains canonical regardless. See ADR-001. */
   memory_dual_write: boolean;
+  /** v0.2.7+: set to true after the user dismisses the first-launch
+   *  memory-layer banner. Prevents the banner from re-appearing on
+   *  every app start. */
+  memory_first_launch_seen: boolean;
 }
 
 export interface PersonFact {
@@ -191,4 +195,5 @@ export const DEFAULT_CONFIG: AppConfig = {
   engineering_rubric: null,
   feature_flags: DEFAULT_FEATURE_FLAGS,
   memory_dual_write: true,
+  memory_first_launch_seen: false,
 };

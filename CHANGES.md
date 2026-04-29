@@ -11,6 +11,26 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 11 — `feat/onboarding-reingest-banner`
+
+- New `src/components/MemoryFirstLaunchBanner.tsx` — quiet header strip
+  that appears once per install, the first time both:
+    1. `app_config.memory_first_launch_seen` is false, AND
+    2. `memory_status` reports daemon ready.
+- Body explains the v0.2.7 reality (memory builds forward; v0.4 imports
+  the rest), points users at ⌘K and the search screen, and offers a
+  "Got it" dismiss button that flips the flag.
+- New AppConfig field `memory_first_launch_seen: boolean` (default false).
+- App.tsx mounts the banner directly under the Titlebar so the strip
+  sits above sidebar + main view without disturbing layout.
+- Robust degradation: getConfig failure → no banner, memoryStatus
+  failure → no banner, daemon not ready → retry once after 3s then
+  give up for the session.
+- 6 new vitest tests (338 total): hidden when seen=true, visible when
+  seen=false + ready, hidden during starting state, dismiss writes flag
+  + unmounts, getConfig failure → silent hide, memoryStatus failure →
+  silent hide.
+
 ### PR 9 — `feat/activity-sidebar`
 
 - New `src/components/ActivitySidebar.tsx` — collapsible right-edge panel

@@ -9,6 +9,7 @@ import { Sidebar, type ViewKey } from "./components/Sidebar";
 import { CommandPalette, type CommandAction } from "./components/CommandPalette";
 import { RelatedPanel } from "./components/RelatedPanel";
 import { ActivitySidebar } from "./components/ActivitySidebar";
+import { MemoryFirstLaunchBanner } from "./components/MemoryFirstLaunchBanner";
 import { SessionReader } from "./components/SessionReader";
 import { PersonDetail } from "./components/PersonDetail";
 import { RunOverlay, type RunState } from "./components/RunOverlay";
@@ -609,6 +610,7 @@ export default function App() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
       />
+      <MemoryFirstLaunchBanner />
       <div className="flex flex-1 overflow-hidden">
         {sidebarOpen && (
           <Sidebar
