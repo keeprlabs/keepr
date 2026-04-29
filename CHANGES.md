@@ -2,6 +2,28 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
+## v0.2.6 — ctxd memory layer (Unreleased)
+
+Bundling [`keeprlabs/ctxd`](https://github.com/keeprlabs/ctxd) v0.3.0 as
+Keepr's default memory substrate. Side-by-side with the existing markdown
+store (no migration in v0.2.6) — see `tasks/ctxd-integration.md`.
+
+### PR 1 — `feat/ctxd-bundle`
+
+- Vendor ctxd v0.3.0 prebuilt binary into `src-tauri/binaries/` via
+  `scripts/fetch-ctxd.ts` at build time. Binaries are gitignored;
+  `CTXD_TARGET=universal-apple-darwin` lipos both arch tarballs for
+  release builds. End users never fetch — DMG ships ctxd inside.
+- New `src-tauri/src/memory/` module: sidecar lifecycle (`daemon.rs`),
+  random per-user TCP ports (`ports.rs`), one Tauri command exposed:
+  `memory_status`. See `docs/decisions/002-ctxd-lifecycle.md`.
+- Migration #9: `evidence_items.subject_path` for ctxd subject pointers
+  (populated forward-only in PR 3).
+- Migration #10: `team_members.ctxd_uuid` — UUID-based person IDs in
+  ctxd subjects; slugs stay for human-readable URLs.
+- New `src/services/ctxStore.ts` thin TS wrapper over `memory_status`.
+- Settings → Memory layer panel (status indicator + refresh).
+
 ## v0.2.5 — Codex Provider + Team member smart selection  (2026-04-28)
 
 ### Codex Provider + Team member smart selection

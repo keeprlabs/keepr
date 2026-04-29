@@ -13,6 +13,9 @@ src-tauri/WixTools/
 *.app.tar.gz
 *.app.tar.gz.sig
 
+# ctxd sidecar — fetched at build time by scripts/fetch-ctxd.ts
+src-tauri/binaries/
+
 # Editor
 .vscode/*
 !.vscode/extensions.json
