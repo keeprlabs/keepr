@@ -125,6 +125,10 @@ vi.mock("@tauri-apps/plugin-shell", () => ({
   open: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn(async () => null),
+}));
+
 vi.mock("../../components/primitives/SourceBadge", () => ({
   GitHubIcon: () => null,
   GitLabIcon: () => null,
