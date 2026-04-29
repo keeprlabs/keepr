@@ -16,6 +16,17 @@ import {
   writeFileAtomic,
 } from "./fsio";
 import type { TeamMember, WorkflowType } from "../lib/types";
+import { getConfig, ensureCtxdUuid } from "./db";
+import { memoryWrite } from "./ctxStore";
+import {
+  EVENT_TYPES,
+  SCHEMA_VERSION,
+  personSubject,
+  sessionSubject,
+  statusSubject,
+  topicSubject,
+} from "./ctxSubjects";
+import { warn as logWarn } from "@tauri-apps/plugin-log";
 
 const LOCK_FILE = ".keepr.lock";
 
@@ -317,6 +328,26 @@ export async function writeMemory(args: {
       }
     }
 
+    // ---- ctxd dual-write (fire-and-forget) ----
+    // Markdown is canonical; ctxd is a derived index. We don't await
+    // the ctxd writes — failures get logged, the session result is
+    // returned immediately. Behind app_config.memory_dual_write so
+    // operators can flip it off if the daemon misbehaves.
+    void dualWriteSession({
+      workflow: args.workflow,
+      targetSlug: args.targetSlug,
+      targetDisplayName: args.targetDisplayName,
+      members: args.members,
+      visibleMarkdown,
+      byPerson,
+      topics,
+      dateStamp,
+      timeRange: args.timeRange,
+      sessionFile,
+    }).catch((err) =>
+      logWarn(`memory dual-write failed: ${err instanceof Error ? err.message : String(err)}`)
+    );
+
     return sessionFile;
   } finally {
     await releaseLock(lockPath);
@@ -385,4 +416,122 @@ async function appendMemoryFile(
   const seed = prior ?? opts.header ?? "";
   const next = seed.endsWith("\n") || seed === "" ? seed + block : seed + "\n" + block;
   await conflictSafeWrite(path, next);
+}
+
+
+// ---------- ctxd dual-write (v0.2.7+) -------------------------------------
+//
+// Mirrors every markdown write into a ctxd event. Markdown is canonical;
+// these writes are fire-and-forget. Gated by `app_config.memory_dual_write`
+// (default true). Daemon offline = no writes happen, no session-flow impact.
+// See ADR-001 (subject schema) and ADR-002 (lifecycle).
+
+interface DualWriteArgs {
+  workflow: WorkflowType;
+  targetSlug: string | null;
+  targetDisplayName: string | null;
+  members: TeamMember[];
+  visibleMarkdown: string;
+  byPerson: Map<number, MemoryDelta[]>;
+  topics: ParsedTopic[];
+  dateStamp: string;
+  timeRange: { start: string; end: string };
+  sessionFile: string;
+}
+
+export async function dualWriteSession(args: DualWriteArgs): Promise<void> {
+  const cfg = await getConfig();
+  if (!cfg.memory_dual_write) return;
+
+  const sessionSlug = sessionSlugFor(args.workflow, args.targetSlug);
+  const writes: Array<Promise<unknown>> = [];
+
+  writes.push(
+    memoryWrite(
+      sessionSubject(args.dateStamp, args.workflow, sessionSlug),
+      EVENT_TYPES.SESSION_COMPLETED,
+      {
+        schema_version: SCHEMA_VERSION,
+        workflow: args.workflow,
+        target_display_name: args.targetDisplayName,
+        time_range: args.timeRange,
+        session_file: args.sessionFile,
+        summary: firstFewSentences(args.visibleMarkdown),
+      }
+    )
+  );
+
+  if (args.workflow === "team_pulse" || args.workflow === "weekly_update") {
+    writes.push(
+      memoryWrite(statusSubject(), EVENT_TYPES.STATUS_UPDATED, {
+        schema_version: SCHEMA_VERSION,
+        workflow: args.workflow,
+        time_range: args.timeRange,
+        summary: firstFewSentences(args.visibleMarkdown),
+      })
+    );
+  }
+
+  for (const [personId, deltas] of args.byPerson) {
+    const member = args.members.find((m) => m.id === personId);
+    if (!member) continue;
+    let uuid: string;
+    try {
+      uuid = await ensureCtxdUuid(personId);
+    } catch (err) {
+      logWarn(`dual-write: ensureCtxdUuid(${personId}) failed: ${String(err)}`);
+      continue;
+    }
+    const subject = personSubject(uuid);
+    for (const d of deltas) {
+      writes.push(
+        memoryWrite(subject, EVENT_TYPES.PERSON_FACT, {
+          schema_version: SCHEMA_VERSION,
+          display_name: member.display_name,
+          slug: member.slug,
+          line: d.line,
+          workflow: args.workflow,
+          date: args.dateStamp,
+        })
+      );
+    }
+  }
+
+  for (const topic of args.topics) {
+    const topicSlug = slugify(topic.name);
+    writes.push(
+      memoryWrite(topicSubject(topicSlug), EVENT_TYPES.TOPIC_NOTE, {
+        schema_version: SCHEMA_VERSION,
+        name: topic.name,
+        bullets: topic.bullets,
+        workflow: args.workflow,
+        date: args.dateStamp,
+      })
+    );
+  }
+
+  const results = await Promise.allSettled(writes);
+  const failures = results.filter((r) => r.status === "rejected");
+  if (failures.length) {
+    logWarn(
+      `memory dual-write: ${failures.length}/${results.length} events did not land — daemon offline?`
+    );
+  }
+}
+
+function sessionSlugFor(workflow: WorkflowType, targetSlug: string | null): string {
+  switch (workflow) {
+    case "team_pulse":
+      return "team-pulse";
+    case "one_on_one_prep":
+      return `1on1-${targetSlug || "engineer"}`;
+    case "weekly_update":
+      return "weekly-update";
+    case "perf_evaluation":
+      return `perf-eval-${targetSlug || "engineer"}`;
+    case "promo_readiness":
+      return `promo-readiness-${targetSlug || "engineer"}`;
+    default:
+      return workflow;
+  }
 }
