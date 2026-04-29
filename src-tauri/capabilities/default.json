@@ -63,6 +63,8 @@
     "sql:allow-select",
     "sql:allow-load",
     "store:default",
-    "log:default"
+    "log:default",
+    "updater:default",
+    "process:default"
   ]
 }
