@@ -11,6 +11,25 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 5 — `feat/cmdk-palette`
+
+- `CommandPalette` now also queries the ctxd memory layer via
+  `memory_query(/keepr, top_k=8)` on a 150ms debounce. Memory hits render
+  in a new "In memory layer" section under the existing file-search
+  results.
+- Memory rows show a subject-derived label (`person`, `session`, `topic`,
+  `follow-up`, `status`, `evidence`, or the source name for `/work/**`),
+  the event's title (best-effort from `data.summary`/`line`/`name`), and
+  the canonical subject path.
+- New optional `onNavigateSubject?: (subject: string) => void` prop on
+  `CommandPalette`. PR 6 (MemorySearch) wires it; without a handler the
+  palette just closes — no crash.
+- Transient (offline / timeout) and `not_yet_supported` errors collapse
+  to empty results — no toast, no spinner, low-stakes UX.
+- 8 new vitest tests covering: skip-when-empty, skip-under-2-chars,
+  debounce coalescing, render shape, transient-error path,
+  not_yet_supported path, Enter→onNavigateSubject, close-clears-hits.
+
 ### PR 3 — `feat/memory-subjects`
 
 - New `src/services/ctxSubjects.ts` — canonical subject path builders for
