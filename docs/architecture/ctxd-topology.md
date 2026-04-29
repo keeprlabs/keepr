@@ -95,7 +95,41 @@ Window close
 | `memory_query` | `client.query(QueryView::Fts)` | ✅ FTS-only until embedder lands |
 | `memory_subjects` | n/a — SDK lacks it | ⏳ `NotYetSupported` until v0.4 SDK |
 | `memory_related` | n/a — SDK lacks it | ⏳ `NotYetSupported` until v0.4 SDK |
-| `memory_subscribe` | `client.subscribe` (stubbed) | ⏳ Real wiring in v0.2.7 PR 9 |
+| `memory_subscribe` | `client.subscribe` (stubbed) | ⏳ Real wiring once v0.4 SDK exposes EventStream |
+
+## UI surfaces (v0.2.7 PRs 5–11)
+
+```mermaid
+graph TD
+    cmdk["⌘K palette<br/>(CommandPalette.tsx + memory section)"]
+    search["MemorySearch.tsx<br/>(filter chips: source, range, person)"]
+    related["RelatedPanel.tsx<br/>(right edge, opens on subject click)"]
+    sidebar["ActivitySidebar.tsx<br/>(default-collapsed, subscribe stub)"]
+    person["PersonDetail.tsx<br/>(memory-layer section below facts)"]
+    pulse["SessionReader.tsx<br/>(citation chips → RelatedPanel)"]
+    banner["MemoryFirstLaunchBanner.tsx<br/>(once per install)"]
+
+    cmdk -->|memory_query| search
+    search -->|onOpenSubject| related
+    person -->|memory_read| related
+    pulse -->|subject_path → onOpenRelated| related
+    related -->|memory_related (NotYetSupported in v0.2.7)| related
+    sidebar -.->|memory_subscribe (stub in v0.2.7)| sidebar
+    banner -.->|memory_status| banner
+```
+
+| Surface | PR | Tauri commands used |
+|---|---|---|
+| Memory layer Settings panel | PR 1 | `memory_status` |
+| ⌘K palette memory section | PR 5 | `memory_query` |
+| MemorySearch screen | PR 6 | `memory_query` |
+| RelatedPanel | PR 8 | `memory_related` (NYS) |
+| SessionReader citation chips | PR 10 | (uses subject_path; opens RelatedPanel) |
+| PersonDetail memory section | PR 7 | `memory_read` |
+| ActivitySidebar | PR 9 | `memory_subscribe` (stub) |
+| First-launch banner | PR 11 | `memory_status` |
+| Evidence dual-write | PR 4 | `memory_write` (via pipeline) |
+| Session/topic/person dual-write | PR 3 | `memory_write` (via memory.ts) |
 
 ## What's NOT in scope here
 

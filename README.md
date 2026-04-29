@@ -50,6 +50,9 @@
 | 🔗 | **Citation sync** | Click any citation to see source evidence — bidirectional highlighting |
 | 🛡️ | **Confidence indicators** | Per-section badges based on evidence depth and source diversity |
 | 📝 | **Local memory** | Observed facts as plain markdown — open in Obsidian, grep, or commit privately |
+| 🔎 | **Memory search** | Full-text search across sessions, people, topics, and evidence (v0.2.7+) |
+| 🪶 | **Related-memory panel** | Click any citation or evidence row to see the entity neighborhood (v0.2.7+) |
+| 📡 | **Activity sidebar** | Live feed of memory-layer events, default-collapsed (v0.2.7 stub; v0.4 streams) |
 | ⌨️ | **Keyboard-first** | Command palette (Cmd+K), citation scroll, session history |
 | 🚫 | **Zero telemetry** | Nothing phones home. Keepr cannot see your sessions. |
 
@@ -139,7 +142,7 @@ Read [`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`CODE_OF_CONDUCT.md`](./CODE_OF
 
 ## Roadmap
 
-v0.1.x shipped the foundation: five workflows, four data sources, local memory, demo mode. v0.2.0 added evidence auditability (cards, confidence, timeline, heatmap, graph) and the follow-up tracker. v0.2.1 added the CLI and Claude Code plugin. v0.2.5 reworked onboarding with org-scoped GitHub teammate search. See [`ROADMAP.md`](./ROADMAP.md) for what's next.
+v0.1.x shipped the foundation: five workflows, four data sources, local memory, demo mode. v0.2.0 added evidence auditability (cards, confidence, timeline, heatmap, graph) and the follow-up tracker. v0.2.1 added the CLI and Claude Code plugin. v0.2.5 reworked onboarding with org-scoped GitHub teammate search. v0.2.6 shipped closed-loop auto-update via the Tauri v2 updater. v0.2.7 (next) brings ctxd as the default memory store: Cmd+K finds anything across history, evidence rows pivot into the related-memory panel, and a quiet activity sidebar previews the live feed landing in v0.4. See [`ROADMAP.md`](./ROADMAP.md) and [`tasks/ctxd-integration.md`](./tasks/ctxd-integration.md) for what's next.
 
 ## License
 
