@@ -11,6 +11,31 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 2 — `feat/memory-commands-skeleton`
+
+- Full Tauri command surface: `memory_query`, `memory_read`, `memory_write`,
+  `memory_subjects`, `memory_related`, `memory_subscribe`, plus the existing
+  `memory_status`. All wrap `ctxd_client::CtxdClient` (git-pinned to
+  `keeprlabs/ctxd@v0.3.0`).
+- New `src-tauri/src/memory/client.rs` (`ClientCell`) with `Arc<CtxdClient>`
+  for cheap, lock-free fan-out to commands. Built once on `Ready` transition
+  by `daemon::spawn`; cleared on shutdown.
+- New `src-tauri/src/memory/errors.rs` (`MemoryError` tagged-enum) — six
+  variants serialized with `kind` discriminator. `From<CtxdError>` classifies
+  by substring (offline / timeout / not_found / bad_request / internal).
+- `memory_subjects` and `memory_related` return `NotYetSupported` until the
+  v0.4 SDK lands those primitives — the v0.3.0 SDK only exposes them via MCP.
+  Frontend treats `not_yet_supported` as empty-state, not as error.
+- `memory_subscribe` returns an opaque stub; PR 9 (activity sidebar) wires
+  the real `EventStream` → Tauri event-emit bridge.
+- Frontend wrapper `src/services/ctxStore.ts` adds the six new functions
+  plus `isEmptyResult` / `isTransientError` predicates to help UI code
+  decide between empty state and error toast.
+- New `docs/architecture/ctxd-topology.md` with a Mermaid topology diagram
+  and command-surface summary table.
+- Tests: 12 new Rust unit tests (`client.rs` × 9, `errors.rs` × 3),
+  10 new vitest tests. Total now 20 cargo + 253 vitest.
+
 ### PR 1 — `feat/ctxd-bundle`
 
 - Vendor ctxd v0.3.0 prebuilt binary into `src-tauri/binaries/` via

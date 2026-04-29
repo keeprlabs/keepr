@@ -16,6 +16,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
+use super::client::ClientCell;
 use super::ports::DaemonPorts;
 
 const SIDECAR_NAME: &str = "ctxd";
@@ -44,6 +45,7 @@ impl Default for DaemonState {
 pub struct DaemonHandle {
     state: Arc<Mutex<DaemonState>>,
     child: Arc<Mutex<Option<CommandChild>>>,
+    client: Arc<ClientCell>,
 }
 
 impl DaemonHandle {
@@ -51,11 +53,17 @@ impl DaemonHandle {
         Self {
             state: Arc::new(Mutex::new(DaemonState::default())),
             child: Arc::new(Mutex::new(None)),
+            client: Arc::new(ClientCell::empty()),
         }
     }
 
     pub async fn snapshot(&self) -> DaemonState {
         self.state.lock().await.clone()
+    }
+
+    /// Borrow the SDK client wrapper. Tauri commands route through this.
+    pub fn client(&self) -> Arc<ClientCell> {
+        self.client.clone()
     }
 
     async fn set_state(&self, next: DaemonState) {
@@ -137,6 +145,24 @@ pub async fn spawn(app: &AppHandle, handle: &DaemonHandle) -> Result<()> {
 
     match poll_health(ports.http, HEALTH_TIMEOUT).await {
         Ok(()) => {
+            // Health probe says ctxd is up. Now build the SDK client
+            // (HTTP admin + wire connect) and stash it on the handle.
+            // If client install fails (rare — daemon would have to
+            // crash between health probe and connect), surface as
+            // Offline so the rest of the app degrades gracefully.
+            let http_addr = format!("http://{}", bind);
+            let wire_addr = wire_bind.clone();
+            if let Err(client_err) = handle.client.install(&http_addr, &wire_addr).await {
+                shutdown(handle).await;
+                let reason = format!("ctxd client install failed: {client_err}");
+                handle
+                    .set_state(DaemonState::Offline {
+                        reason: reason.clone(),
+                    })
+                    .await;
+                log::error!(target: "memory::daemon", "{reason}");
+                return Err(anyhow!(reason));
+            }
             handle
                 .set_state(DaemonState::Ready {
                     http_port: ports.http,
@@ -172,6 +198,7 @@ pub async fn shutdown(handle: &DaemonHandle) {
             log::info!(target: "memory::daemon", "ctxd shutdown sent");
         }
     }
+    handle.client.clear().await;
     handle
         .set_state(DaemonState::Offline {
             reason: "shutdown".to_string(),
