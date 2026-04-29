@@ -672,6 +672,7 @@ export default function App() {
                 <PersonDetail
                   member={m}
                   onBack={() => setView({ kind: "home" })}
+                  onOpenSubject={(s) => setRelatedSubject(s)}
                 />
               ) : null;
             })()}
