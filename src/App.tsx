@@ -14,6 +14,7 @@ import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
 import { Settings } from "./screens/Settings";
 import { MemoryView } from "./screens/MemoryView";
+import { MemorySearch } from "./screens/MemorySearch";
 import { FollowUps } from "./screens/FollowUps";
 import { TeamHeatmap } from "./screens/TeamHeatmap";
 import { ThreadGraph } from "./screens/ThreadGraph";
@@ -678,6 +679,16 @@ export default function App() {
           {view.kind === "heatmap" && <TeamHeatmap members={members} />}
           {view.kind === "graph" && <ThreadGraph members={members} />}
           {view.kind === "settings" && <Settings focusKind={view.focusKind} />}
+          {view.kind === "memory_search" && (
+            <MemorySearch
+              members={members}
+              initialQuery={view.q}
+              initialSubject={view.subject}
+              onOpenSubject={(s) =>
+                setView({ kind: "memory_search", subject: s })
+              }
+            />
+          )}
           </div>
         </main>
       </div>
@@ -689,6 +700,9 @@ export default function App() {
         actions={actions}
         onNavigateSession={(id) => setView({ kind: "session", id })}
         onNavigateMemory={(file) => setView({ kind: "memory", file })}
+        onNavigateSubject={(subject) =>
+          setView({ kind: "memory_search", subject })
+        }
       />
       <RunOverlay
         state={runState}

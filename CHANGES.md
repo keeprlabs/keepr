@@ -11,6 +11,30 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
 
+### PR 6 — `feat/memory-search`
+
+- New screen `src/screens/MemorySearch.tsx` — full-results view backed
+  by `memory_query`. Filter chips for source (all/keepr/github/slack/
+  jira/linear/gitlab), date range (all/7d/30d/90d), and team members.
+  Subject-prefix filter chip when launched from the cmd+k palette.
+- New `ViewKey` variant `{ kind: "memory_search", q?, subject? }`.
+- `App.tsx` wires the cmd+k palette's `onNavigateSubject` to navigate
+  into MemorySearch with the subject pre-filled.
+- 200ms debounce on the search input. Empty state honestly explains
+  the v0.2.7 forward-only reality (older history lands in v0.4 import).
+- Offline state surfaces an inline banner ("Memory layer is offline…")
+  rather than a toast.
+- New `src-tauri/benches/memory_query.rs` — criterion benchmark that
+  spawns a real ctxd daemon, pre-loads 1k/10k/50k synthetic events,
+  and times `query` with `QueryView::Fts` and `QueryView::Log`. The
+  50k case is gated by `KEEPR_BENCH_50K=1` (slow ingest). Tracks the
+  kill-criteria p95 < 600ms threshold.
+- New `bench-results/README.md` documents how to run.
+- 11 new vitest tests covering: empty state, offline banner,
+  not_yet_supported→empty, render shape, source filter (keepr-only,
+  github bridge), 7d range filter, click→onOpenSubject,
+  initialSubject scoping, debounce, person filter chip render.
+
 ### PR 5 — `feat/cmdk-palette`
 
 - `CommandPalette` now also queries the ctxd memory layer via

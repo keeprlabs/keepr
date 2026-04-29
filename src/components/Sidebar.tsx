@@ -18,6 +18,12 @@ export type ViewKey =
   | { kind: "followups" }
   | { kind: "heatmap" }
   | { kind: "graph" }
+  /** v0.2.7+: full-results screen for the memory layer (ctxd).
+   *  - `q` initial search text (optional).
+   *  - `subject` initial subject prefix filter (optional). When set
+   *    from the cmd+k palette, scopes results to events under that
+   *    subject branch. */
+  | { kind: "memory_search"; q?: string; subject?: string }
   | {
       kind: "settings";
       /** When navigating from the RunOverlay "Fix in Settings" button with
