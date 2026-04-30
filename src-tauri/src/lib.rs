@@ -1,3 +1,4 @@
+mod binresolve;
 mod fs_atomic;
 mod memory;
 mod secrets;
@@ -372,6 +373,9 @@ pub fn run() {
             fs_atomic::release_lock,
             fs_atomic::list_md_files,
             memory::memory_status,
+            binresolve::resolve_binary,
+            binresolve::detect_app_bundle,
+            binresolve::validate_binary_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keepr");

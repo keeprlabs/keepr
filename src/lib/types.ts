@@ -120,6 +120,12 @@ export interface AppConfig {
   custom_llm_base_url: string;
   custom_llm_synthesis_model: string;
   custom_llm_classifier_model: string;
+  /** User-specified absolute path to the codex CLI binary. Overrides
+   *  shell + bundle auto-detection. Empty string = use auto-detect. */
+  codex_cli_path: string;
+  /** User-specified absolute path to the claude CLI binary. Same semantics
+   *  as codex_cli_path. */
+  claude_code_cli_path: string;
   privacy_consent_at: string | null;
   onboarded_at: string | null;
   engineering_rubric: string | null;
@@ -190,6 +196,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   custom_llm_base_url: "",
   custom_llm_synthesis_model: "",
   custom_llm_classifier_model: "",
+  codex_cli_path: "",
+  claude_code_cli_path: "",
   privacy_consent_at: null,
   onboarded_at: null,
   engineering_rubric: null,

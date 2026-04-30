@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
 import {
   checkForUpdate,
   getLastCheckedAt,
@@ -365,17 +366,38 @@ export function Settings({
                   probeClaudeCode(true).then(setClaudeProbe);
                 }
               };
+              const overrideKey =
+                activeProvider === "codex" ? "codex_cli_path" : "claude_code_cli_path";
+              const overridePath = (cfg[overrideKey] as string) || "";
+              const probeFailing = !!(probe && !probe.ok);
+              const binaryName = activeProvider === "codex" ? "codex" : "claude";
               return (
-                <CliProviderPanel
-                  provider={p}
-                  probe={probe}
-                  onRetry={probe && !probe.ok ? onRetry : undefined}
-                  otherErrorMessage={
-                    probe && !probe.ok && probe.reason === "other"
-                      ? friendlyProviderError(new Error(probe.raw), activeProvider)
-                      : undefined
-                  }
-                />
+                <>
+                  <CliProviderPanel
+                    provider={p}
+                    probe={probe}
+                    onRetry={probe && !probe.ok ? onRetry : undefined}
+                    otherErrorMessage={
+                      probe && !probe.ok && probe.reason === "other"
+                        ? friendlyProviderError(new Error(probe.raw), activeProvider)
+                        : undefined
+                    }
+                  />
+                  <CustomPathOverride
+                    binaryName={binaryName}
+                    configKey={overrideKey}
+                    currentPath={overridePath}
+                    probeFailing={probeFailing}
+                    onSaved={() => {
+                      // Pick up the new value in cfg, then re-probe via the
+                      // existing retry path. invalidate*Probe also clears the
+                      // session "override checked" flag in llm.ts, so the
+                      // next resolveBinary re-reads the saved path.
+                      load();
+                      onRetry();
+                    }}
+                  />
+                </>
               );
             }
 
@@ -1184,6 +1206,153 @@ function SaveButton({
         ? "Failed"
         : label}
     </button>
+  );
+}
+
+// Last-resort manual override for CLI provider paths. When the user's
+// shell PATH and known macOS .app locations both fail to surface the CLI,
+// they can paste an absolute path here. Validated by the Rust
+// `validate_binary_path` command (file exists, is regular, is executable)
+// before saving — surfaces a precise error inline if validation fails.
+//
+// Auto-expands when the probe is failing AND no override is set, so users
+// who hit not_in_path / app_only_no_cli don't have to hunt for the escape
+// hatch. Once a path is saved, expansion state is user-controlled.
+function CustomPathOverride({
+  binaryName,
+  configKey,
+  currentPath,
+  probeFailing,
+  onSaved,
+}: {
+  binaryName: "codex" | "claude";
+  configKey: "codex_cli_path" | "claude_code_cli_path";
+  currentPath: string;
+  probeFailing: boolean;
+  onSaved: () => void;
+}) {
+  const [expanded, setExpanded] = useState(probeFailing && !currentPath);
+  const [draft, setDraft] = useState(currentPath);
+  const [err, setErr] = useState("");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Re-sync local draft when the saved path changes from elsewhere (e.g.
+  // a re-probe revealed a stale path).
+  useEffect(() => {
+    setDraft(currentPath);
+  }, [currentPath]);
+
+  const browse = async () => {
+    setErr("");
+    const chosen = await openDialog({ multiple: false, directory: false });
+    if (typeof chosen === "string") setDraft(chosen);
+  };
+
+  const save = async () => {
+    setErr("");
+    setStatus("saving");
+    try {
+      const trimmed = draft.trim();
+      if (trimmed) {
+        const validated = await invoke<string | null>("validate_binary_path", {
+          path: trimmed,
+        });
+        if (!validated) {
+          setStatus("idle");
+          setErr(
+            "Path is not a valid executable file. Check that it exists, is a regular file, and has the executable bit set."
+          );
+          return;
+        }
+        await setConfig({ [configKey]: validated } as any);
+        setDraft(validated);
+      } else {
+        await setConfig({ [configKey]: "" } as any);
+      }
+      setStatus("saved");
+      setTimeout(() => setStatus("idle"), 1500);
+      onSaved();
+    } catch (e: any) {
+      setStatus("idle");
+      setErr(e?.message || "Failed to save.");
+    }
+  };
+
+  const clear = async () => {
+    setDraft("");
+    setErr("");
+    await setConfig({ [configKey]: "" } as any);
+    onSaved();
+  };
+
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className="mt-2 text-xs text-ink-faint hover:text-ink-muted transition-colors"
+      >
+        {currentPath
+          ? `▾ Advanced — Custom path: ${currentPath}`
+          : "▾ Advanced — Set a custom path"}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-md border border-hairline bg-canvas-soft p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-medium text-ink-muted">
+          Custom path to {binaryName} binary
+        </span>
+        <button
+          onClick={() => setExpanded(false)}
+          className="text-xs text-ink-faint hover:text-ink-muted transition-colors"
+          aria-label="Collapse custom path"
+        >
+          ×
+        </button>
+      </div>
+      <div className="flex gap-2">
+        <input
+          className={inputCls}
+          value={draft}
+          placeholder={`/opt/homebrew/bin/${binaryName}`}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setErr("");
+          }}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+        />
+        <Ghost onClick={browse}>Browse…</Ghost>
+      </div>
+      {err && (
+        <p className="mt-2 text-xs text-red-600" role="alert">
+          {err}
+        </p>
+      )}
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={status === "saving"}
+          className="inline-flex items-center gap-2 rounded-md border border-hairline px-3 py-2 text-xs text-ink-soft hover:border-ink/20 hover:text-ink transition-all duration-180 ease-calm disabled:opacity-50"
+        >
+          {status === "saving" ? "Saving…" : status === "saved" ? "Saved" : "Save & test"}
+        </button>
+        {currentPath && (
+          <button
+            onClick={clear}
+            className="text-xs text-ink-faint hover:text-ink-muted transition-colors"
+          >
+            Clear (use auto-detect)
+          </button>
+        )}
+        <span className="ml-auto text-xs text-ink-faint">
+          Overrides shell + bundle auto-detect.
+        </span>
+      </div>
+    </div>
   );
 }
 
