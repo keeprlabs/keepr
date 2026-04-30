@@ -141,6 +141,38 @@ describe("ctxSubjects — evidenceSubjectFor", () => {
     );
   });
 
+  it("github_pr escapes / in real source_id format (owner/repo#n)", () => {
+    // github.ts emits source_id="${owner}/${repo}#${n}" which contains "/".
+    // evidenceSubject would otherwise reject it as "invalid path part".
+    expect(
+      evidenceSubjectFor(
+        "github_pr",
+        "acme/billing#3412",
+        "https://github.com/acme/billing/pull/3412"
+      )
+    ).toBe("/keepr/evidence/github/acme/billing/pulls/3412/acme_billing#3412");
+  });
+
+  it("github_review escapes / in real source_id (review/<id> suffix)", () => {
+    expect(
+      evidenceSubjectFor(
+        "github_review",
+        "acme/billing#3412:review/12345",
+        "https://github.com/acme/billing/pull/3412#pullrequestreview-12345"
+      )
+    ).toBe("/keepr/evidence/github/acme/billing/reviews/3412/acme_billing#3412:review_12345");
+  });
+
+  it("gitlab_mr escapes / in real source_id format (group/proj!n)", () => {
+    expect(
+      evidenceSubjectFor(
+        "gitlab_mr",
+        "group/project!7",
+        "https://gitlab.com/group/project/-/merge_requests/7"
+      )
+    ).toBe("/keepr/evidence/gitlab/group/project/mrs/7/group_project!7");
+  });
+
   it("jira and linear use kind segment", () => {
     expect(evidenceSubjectFor("jira_issue", "PROJ-123", null)).toBe(
       "/keepr/evidence/jira/issues/PROJ-123"

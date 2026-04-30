@@ -119,12 +119,13 @@ export function evidenceSubjectFor(
     case "github_review": {
       // source_url shape: https://github.com/{owner}/{repo}/pull/{n}[#review-...]
       // We extract owner/repo/n; everything else collapses to a single
-      // id segment to keep paths sane.
+      // id segment to keep paths sane. source_id often carries embedded
+      // "/" (e.g. "acme/web#42:review/12345") so we escape like slack.
       const m = sourceUrl?.match(/github\.com\/([^/]+)\/([^/]+)\/(?:pull|issues)\/(\d+)/);
       if (!m) return null;
       const [_, owner, repo, n] = m;
       const kind = source === "github_pr" ? "pulls" : "reviews";
-      return evidenceSubject("github", [owner, repo, kind, n, sourceId]);
+      return evidenceSubject("github", [owner, repo, kind, n, sourceId.replace(/\//g, "_")]);
     }
     case "gitlab_mr":
     case "gitlab_review": {
@@ -132,7 +133,7 @@ export function evidenceSubjectFor(
       if (!m) return null;
       const [_, project, n] = m;
       const kind = source === "gitlab_mr" ? "mrs" : "reviews";
-      return evidenceSubject("gitlab", [...project.split("/"), kind, n, sourceId]);
+      return evidenceSubject("gitlab", [...project.split("/"), kind, n, sourceId.replace(/\//g, "_")]);
     }
     case "slack_message": {
       // sourceId carries the channel.ts; that's enough for uniqueness.
