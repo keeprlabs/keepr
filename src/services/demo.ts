@@ -43,7 +43,8 @@ import {
 } from "./db";
 import { defaultMemoryDir, ensureDir } from "./fsio";
 import { getProvider } from "./llm";
-import { slugify, writeMemory } from "./memory";
+import { slugify, writeMemory, dualWriteEvidenceBatch } from "./memory";
+import { evidenceSubjectFor } from "./ctxSubjects";
 import type {
   EvidencePromptItem,
   EvidenceSource,
@@ -493,17 +494,25 @@ export async function runDemoWorkflow(
       item,
     }));
 
-    await insertEvidence(
-      sessionId,
-      withIds.map(({ item, actor }) => ({
-        source: item.source,
-        source_url: item.source_url,
-        source_id: item.source_id,
-        actor_member_id: actor?.id ?? null,
-        timestamp_at: item.timestamp_at,
-        content: item.content,
-      }))
-    );
+    const evidenceRows = withIds.map(({ item, actor }) => ({
+      source: item.source,
+      source_url: item.source_url,
+      source_id: item.source_id,
+      actor_member_id: actor?.id ?? null,
+      timestamp_at: item.timestamp_at,
+      content: item.content,
+      subject_path: evidenceSubjectFor(item.source, item.source_id, item.source_url),
+    }));
+    await insertEvidence(sessionId, evidenceRows);
+
+    // Mirror the real pipeline: dual-write evidence into ctxd so demo
+    // users see populated MemorySearch / cmd+k results after a pulse.
+    void dualWriteEvidenceBatch(evidenceRows).catch((err) => {
+      console.warn(
+        "[keepr] demo evidence dual-write failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    });
 
     const buckets = new Map<string, typeof withIds>();
     for (const w of withIds) {
