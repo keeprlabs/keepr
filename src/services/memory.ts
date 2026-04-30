@@ -511,10 +511,12 @@ export async function dualWriteSession(args: DualWriteArgs): Promise<void> {
   }
 
   const results = await Promise.allSettled(writes);
-  const failures = results.filter((r) => r.status === "rejected");
+  const failures = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected"
+  );
   if (failures.length) {
     logWarn(
-      `memory dual-write: ${failures.length}/${results.length} events did not land — daemon offline?`
+      `memory dual-write: ${failures.length}/${results.length} events did not land. First failure: ${describeRejection(failures[0].reason)}`
     );
   }
 }
@@ -583,10 +585,28 @@ export async function dualWriteEvidenceBatch(
 
   if (!writes.length) return;
   const results = await Promise.allSettled(writes);
-  const failures = results.filter((r) => r.status === "rejected");
+  const failures = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected"
+  );
   if (failures.length) {
     logWarn(
-      `evidence dual-write: ${failures.length}/${results.length} events did not land — daemon offline?`
+      `evidence dual-write: ${failures.length}/${results.length} events did not land. First failure: ${describeRejection(failures[0].reason)}`
     );
   }
+}
+
+/** Render a memoryWrite rejection (typed MemoryError or thrown Error)
+ *  into a one-line diagnostic. Surfaces the daemon's actual error so we
+ *  don't ship "daemon offline?" when ctxd is up and rejecting writes
+ *  for a different reason (invalid subject chars, capability denial,
+ *  etc.). */
+function describeRejection(reason: unknown): string {
+  if (reason && typeof reason === "object") {
+    const r = reason as { kind?: string; message?: string };
+    if (r.kind || r.message) {
+      return `${r.kind ?? "unknown"}: ${r.message ?? "(no message)"}`;
+    }
+  }
+  if (reason instanceof Error) return reason.message;
+  return typeof reason === "string" ? reason : JSON.stringify(reason);
 }

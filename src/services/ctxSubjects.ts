@@ -82,6 +82,15 @@ export function statusSubject(): string {
 
 // ---------- Evidence (bridge namespace) --------------------------------
 
+/** Replace any character outside ctxd's subject grammar
+ *  (`[A-Za-z0-9._-]` per crates/ctxd-core/src/subject.rs:62) with `_`.
+ *  Use on any externally-sourced identifier before placing it as a
+ *  subject path segment. ctxd's daemon rejects `:`, `#`, `!`, etc.
+ *  outright, so we lose nothing by collapsing them here. */
+export function sanitizeSegment(s: string): string {
+  return s.replace(/[^A-Za-z0-9._-]/g, "_");
+}
+
 /** `/keepr/evidence/{source}/{...rest}` — for sources that don't yet
  *  have a ctxd adapter (slack, jira, linear, gitlab). `parts` is the
  *  natural identifier hierarchy for that source. Examples:
@@ -97,7 +106,13 @@ export function evidenceSubject(source: string, parts: string[]): string {
   assertNonEmpty(source, "source");
   if (!parts.length) throw new Error("evidenceSubject: parts must be non-empty");
   for (const p of parts) {
-    if (!p || p.includes("/")) {
+    if (!p) {
+      throw new Error(`evidenceSubject: invalid path part: ${JSON.stringify(p)}`);
+    }
+    // Mirror crates/ctxd-core/src/subject.rs:62 so a bad part fails
+    // here rather than at write-time inside the daemon (where it would
+    // surface as an opaque "invalid character" wire error).
+    if (!/^[A-Za-z0-9._-]+$/.test(p)) {
       throw new Error(`evidenceSubject: invalid path part: ${JSON.stringify(p)}`);
     }
   }
@@ -119,13 +134,13 @@ export function evidenceSubjectFor(
     case "github_review": {
       // source_url shape: https://github.com/{owner}/{repo}/pull/{n}[#review-...]
       // We extract owner/repo/n; everything else collapses to a single
-      // id segment to keep paths sane. source_id often carries embedded
-      // "/" (e.g. "acme/web#42:review/12345") so we escape like slack.
+      // id segment. source_id carries chars ctxd rejects ('/', '#',
+      // ':') — sanitizeSegment maps them all to '_'.
       const m = sourceUrl?.match(/github\.com\/([^/]+)\/([^/]+)\/(?:pull|issues)\/(\d+)/);
       if (!m) return null;
       const [_, owner, repo, n] = m;
       const kind = source === "github_pr" ? "pulls" : "reviews";
-      return evidenceSubject("github", [owner, repo, kind, n, sourceId.replace(/\//g, "_")]);
+      return evidenceSubject("github", [owner, repo, kind, n, sanitizeSegment(sourceId)]);
     }
     case "gitlab_mr":
     case "gitlab_review": {
@@ -133,24 +148,22 @@ export function evidenceSubjectFor(
       if (!m) return null;
       const [_, project, n] = m;
       const kind = source === "gitlab_mr" ? "mrs" : "reviews";
-      return evidenceSubject("gitlab", [...project.split("/"), kind, n, sourceId.replace(/\//g, "_")]);
+      return evidenceSubject("gitlab", [...project.split("/"), kind, n, sanitizeSegment(sourceId)]);
     }
     case "slack_message": {
-      // sourceId carries the channel.ts; that's enough for uniqueness.
-      const safeId = sourceId.replace(/\//g, "_");
-      return evidenceSubject("slack", [safeId]);
+      // sourceId is `${channel_id}:${ts}`; the colon is rejected by
+      // the ctxd Subject parser, so collapse to '_'.
+      return evidenceSubject("slack", [sanitizeSegment(sourceId)]);
     }
     case "jira_issue":
     case "jira_comment": {
-      const safeId = sourceId.replace(/\//g, "_");
       const kind = source === "jira_issue" ? "issues" : "comments";
-      return evidenceSubject("jira", [kind, safeId]);
+      return evidenceSubject("jira", [kind, sanitizeSegment(sourceId)]);
     }
     case "linear_issue":
     case "linear_comment": {
-      const safeId = sourceId.replace(/\//g, "_");
       const kind = source === "linear_issue" ? "issues" : "comments";
-      return evidenceSubject("linear", [kind, safeId]);
+      return evidenceSubject("linear", [kind, sanitizeSegment(sourceId)]);
     }
     default:
       return null;

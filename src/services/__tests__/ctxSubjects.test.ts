@@ -97,10 +97,15 @@ describe("ctxSubjects — validators", () => {
     expect(() => followupSubject("   ")).toThrow(/empty id/);
   });
 
-  it("evidenceSubject rejects empty parts and '/' in parts", () => {
+  it("evidenceSubject rejects empty parts and chars ctxd's daemon won't accept", () => {
     expect(() => evidenceSubject("github", [])).toThrow(/parts/);
     expect(() => evidenceSubject("github", ["a", "b/c"])).toThrow(/invalid path part/);
     expect(() => evidenceSubject("", ["a"])).toThrow(/source/);
+    // ctxd-core/src/subject.rs:62 only allows [A-Za-z0-9._-]; these
+    // would be rejected at write-time as InvalidCharacter.
+    expect(() => evidenceSubject("slack", ["C123:456"])).toThrow(/invalid path part/);
+    expect(() => evidenceSubject("github", ["repo#3412"])).toThrow(/invalid path part/);
+    expect(() => evidenceSubject("gitlab", ["proj!7"])).toThrow(/invalid path part/);
   });
 });
 
@@ -135,42 +140,53 @@ describe("ctxSubjects — evidenceSubjectFor", () => {
     ).toBe("/keepr/evidence/gitlab/group/project/mrs/7/ev-3");
   });
 
-  it("slack_message escapes / in source_id", () => {
+  it("slack_message sanitizes / and : (real format: channel:ts)", () => {
+    // demo + real both emit `${channel_id}:${ts}` — the colon is
+    // rejected by ctxd's Subject parser, so collapses to '_'.
+    expect(evidenceSubjectFor("slack_message", "C0DEMO001:1777355396.521000", null)).toBe(
+      "/keepr/evidence/slack/C0DEMO001_1777355396.521000"
+    );
     expect(evidenceSubjectFor("slack_message", "C123/456.789", null)).toBe(
       "/keepr/evidence/slack/C123_456.789"
     );
   });
 
-  it("github_pr escapes / in real source_id format (owner/repo#n)", () => {
-    // github.ts emits source_id="${owner}/${repo}#${n}" which contains "/".
-    // evidenceSubject would otherwise reject it as "invalid path part".
+  it("github_pr sanitizes /, # in real source_id format (owner/repo#n)", () => {
     expect(
       evidenceSubjectFor(
         "github_pr",
         "acme/billing#3412",
         "https://github.com/acme/billing/pull/3412"
       )
-    ).toBe("/keepr/evidence/github/acme/billing/pulls/3412/acme_billing#3412");
+    ).toBe("/keepr/evidence/github/acme/billing/pulls/3412/acme_billing_3412");
   });
 
-  it("github_review escapes / in real source_id (review/<id> suffix)", () => {
+  it("github_review sanitizes /, #, : in real source_id (review/<id> suffix)", () => {
     expect(
       evidenceSubjectFor(
         "github_review",
         "acme/billing#3412:review/12345",
         "https://github.com/acme/billing/pull/3412#pullrequestreview-12345"
       )
-    ).toBe("/keepr/evidence/github/acme/billing/reviews/3412/acme_billing#3412:review_12345");
+    ).toBe("/keepr/evidence/github/acme/billing/reviews/3412/acme_billing_3412_review_12345");
   });
 
-  it("gitlab_mr escapes / in real source_id format (group/proj!n)", () => {
+  it("gitlab_mr sanitizes /, ! in real source_id format (group/proj!n)", () => {
     expect(
       evidenceSubjectFor(
         "gitlab_mr",
         "group/project!7",
         "https://gitlab.com/group/project/-/merge_requests/7"
       )
-    ).toBe("/keepr/evidence/gitlab/group/project/mrs/7/group_project!7");
+    ).toBe("/keepr/evidence/gitlab/group/project/mrs/7/group_project_7");
+  });
+
+  it("jira_comment sanitizes : in composite source_id", () => {
+    // jira comments use `${issue_key}:comment:${author}:${hours}` — all
+    // those colons need collapsing or the daemon rejects the subject.
+    expect(
+      evidenceSubjectFor("jira_comment", "PROJ-123:comment:alice:5", null)
+    ).toBe("/keepr/evidence/jira/comments/PROJ-123_comment_alice_5");
   });
 
   it("jira and linear use kind segment", () => {
