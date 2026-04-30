@@ -109,6 +109,32 @@ vi.mock("@tauri-apps/plugin-shell", () => ({
   Command: harness.FakeCommand,
 }));
 
+// resolve_binary is the new Rust command that turns "codex" into an absolute
+// path via the user's login shell (fixes the macOS GUI app PATH problem). In
+// tests we make it a no-op identity by default — returning the bare name
+// keeps the existing assertions on `program === "sh"` and `^exec 'codex' `
+// valid. detect_app_bundle returns null by default (no .app present); tests
+// that exercise the app_only_no_cli branch override per-call.
+const invokeMock = vi.fn(async (cmd: string, args?: any) => {
+  if (cmd === "resolve_binary") return args?.name ?? null;
+  if (cmd === "detect_app_bundle") return null;
+  return null;
+});
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (cmd: string, args?: any) => invokeMock(cmd, args),
+}));
+
+// Mock ./db so resolveBinary's override-from-app_config check can be exercised
+// without a real Tauri SQL backend. Default: empty config (no overrides set).
+// Tests that exercise the override branch override this per-test.
+const getConfigMock = vi.fn(async () => ({
+  codex_cli_path: "",
+  claude_code_cli_path: "",
+}));
+vi.mock("../db", () => ({
+  getConfig: () => getConfigMock(),
+}));
+
 const { FakeCommand, FakeChild, fakeFiles } = harness;
 
 // ── System under test ────────────────────────────────────────────────
@@ -116,15 +142,42 @@ const { FakeCommand, FakeChild, fakeFiles } = harness;
 import {
   PROVIDERS,
   probeCodex,
+  probeClaudeCode,
   invalidateCodexProbe,
+  invalidateClaudeProbe,
   _peekCodexProbeCache,
+  _peekBinaryPathCache,
+  friendlyProviderError,
 } from "../llm";
 
 beforeEach(async () => {
   fakeFiles.clear();
   invalidateCodexProbe();
+  invalidateClaudeProbe();
+  // Reset invoke mock to identity behavior (returns the bare name, simulating
+  // a binary that's already in PATH). Tests that need not_in_path or a
+  // specific absolute path override this per-test.
+  invokeMock.mockReset();
+  invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+    if (cmd === "resolve_binary") return args?.name ?? null;
+    if (cmd === "detect_app_bundle") return null;
+    if (cmd === "validate_binary_path") return args?.path ?? null;
+    return null;
+  });
+  getConfigMock.mockReset();
+  getConfigMock.mockImplementation(async () => ({
+    codex_cli_path: "",
+    claude_code_cli_path: "",
+  }));
   FakeCommand.plan = {};
   FakeCommand.lastInstance = null;
+  // Reset the spawned-handle promise. Without this, a previous test that set
+  // `spawnError` leaves FakeCommand.spawned pending forever (spawn throws
+  // before spawnedResolve fires), and the next test that does
+  // `await FakeCommand.spawned` blocks until the timeout. Pre-existing race;
+  // exposed once an extra `await resolveBinary(...)` microtask was added
+  // between complete() and runCli's Command.create.
+  FakeCommand.spawned = Promise.resolve(null as any);
   // Reset the per-call mockResolvedValueOnce queue on readTextFile —
   // otherwise an aborted test that seeded a value but never reached the
   // read leaves stale state for the next test.
@@ -569,5 +622,373 @@ describe("claudeCode signal handling [regression: previously ignored opts.signal
     expect(result.text).toBe("hi");
     expect(result.input_tokens).toBe(3);
     expect(result.output_tokens).toBe(1);
+  });
+});
+
+// ── Binary resolution: the macOS GUI-app PATH fix ───────────────────────────
+//
+// macOS GUI apps inherit a minimal PATH from Launch Services, NOT the user's
+// shell PATH. So `sh -c 'exec codex'` fails with "codex: not found" even when
+// `codex` works fine in Terminal. The fix: resolve to absolute path via the
+// user's login shell once, cache, and pass the absolute path to the spawn so
+// PATH stops mattering. Tests below cover the resolution, caching, classify
+// branch (not_in_path vs not_installed), and the friendly error copy.
+
+describe("resolveBinary [regression: GUI app PATH not_in_path bug]", () => {
+  it("probeCodex returns not_in_path when the user shell can't find the binary", async () => {
+    // Simulate: brother has codex in ~/.npm-global/bin, but Tauri-spawned shell
+    // can't see it. invoke('resolve_binary') returns null because `command -v
+    // codex` failed in the user's login shell. (In production this would only
+    // happen if the binary genuinely isn't installed OR the user has a really
+    // weird shell setup that masks PATH.)
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "resolve_binary") return null;
+      return null;
+    });
+    const r = await probeCodex();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("not_in_path");
+  });
+
+  it("probeClaudeCode returns not_in_path when shell can't find claude", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "resolve_binary") return null;
+      return null;
+    });
+    const r = await probeClaudeCode();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("not_in_path");
+  });
+
+  it("uses the resolved absolute path in the spawn (not the bare name)", async () => {
+    // Simulate the production case: shell resolves codex to homebrew location.
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary" && args?.name === "codex") {
+        return "/opt/homebrew/bin/codex";
+      }
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    const fs = await import("@tauri-apps/plugin-fs");
+    (fs.readTextFile as any).mockResolvedValueOnce("ok");
+
+    await PROVIDERS.codex.complete({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "x" }],
+    });
+
+    // Still spawns through sh (for the stdin redirect), but the binary inside
+    // is now the absolute path — that's what makes the GUI-app PATH irrelevant.
+    expect(FakeCommand.lastInstance?.program).toBe("sh");
+    const cmdLine = FakeCommand.lastInstance?.args?.[1] || "";
+    expect(cmdLine).toMatch(/^exec '\/opt\/homebrew\/bin\/codex' /);
+    expect(cmdLine).toMatch(/< \/dev\/null$/);
+  });
+
+  it("caches the resolved path — second probe doesn't re-invoke resolve_binary", async () => {
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary") return `/usr/local/bin/${args?.name}`;
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+
+    await probeCodex();
+    const callsAfterFirst = invokeMock.mock.calls.filter(
+      (c) => c[0] === "resolve_binary"
+    ).length;
+
+    // Second probe goes through the probe cache (force=false), AND also
+    // doesn't need to re-resolve. Force a fresh probe to bypass the probe
+    // cache and confirm the bin path cache still avoids a second invoke.
+    await probeCodex(true);
+    const callsAfterSecond = invokeMock.mock.calls.filter(
+      (c) => c[0] === "resolve_binary"
+    ).length;
+
+    expect(callsAfterFirst).toBe(1);
+    expect(callsAfterSecond).toBe(1); // cache hit, no second invoke
+    expect(_peekBinaryPathCache("codex")).toBe("/usr/local/bin/codex");
+  });
+
+  it("invalidateCodexProbe clears the binary path cache", async () => {
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary") return `/usr/local/bin/${args?.name}`;
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    await probeCodex();
+    expect(_peekBinaryPathCache("codex")).toBe("/usr/local/bin/codex");
+
+    invalidateCodexProbe();
+    expect(_peekBinaryPathCache("codex")).toBeNull();
+  });
+
+  it("invalidateClaudeProbe clears the binary path cache for claude", async () => {
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary") return `/usr/local/bin/${args?.name}`;
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    await probeClaudeCode();
+    expect(_peekBinaryPathCache("claude")).toBe("/usr/local/bin/claude");
+
+    invalidateClaudeProbe();
+    expect(_peekBinaryPathCache("claude")).toBeNull();
+  });
+
+  it("falls back to bare name when invoke itself throws (test env without Tauri)", async () => {
+    // Belt-and-suspenders: if the invoke handler somehow isn't registered,
+    // resolveBinary should return the bare name so spawning at least *tries*.
+    // Production always has invoke; this is a paranoid fallback.
+    invokeMock.mockImplementation(async () => {
+      throw new Error("invoke not available");
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    const r = await probeCodex();
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("app_only_no_cli — user has Codex.app but no CLI shim", () => {
+  it("probeCodex returns app_only_no_cli when shell can't resolve but Codex.app exists", async () => {
+    // Simulate the "I installed the macOS app, why doesn't it work?" case.
+    // resolve_binary returns null (no CLI on shell PATH) but detect_app_bundle
+    // finds /Applications/Codex.app. The probe must distinguish this from the
+    // truly-not-installed case so the UI can point the user at the right fix
+    // (Open Codex → Settings → Install Shell Command).
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "resolve_binary") return null;
+      if (cmd === "detect_app_bundle") return "/Applications/Codex.app";
+      return null;
+    });
+    const r = await probeCodex();
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toBe("app_only_no_cli");
+      expect(r.appPath).toBe("/Applications/Codex.app");
+    }
+  });
+
+  it("probeCodex prefers not_in_path when no .app is found", async () => {
+    // Defense in depth: if both resolve_binary and detect_app_bundle return
+    // null, we fall back to not_in_path (the "weird PATH or genuinely not
+    // installed" catchall) — NOT app_only_no_cli.
+    invokeMock.mockImplementation(async () => null);
+    const r = await probeCodex();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("not_in_path");
+  });
+
+  it("friendly error copy points the user at 'Install Shell Command'", async () => {
+    const msg = friendlyProviderError(
+      new Error(
+        "Codex not available (app_only_no_cli): codex: /Applications/Codex.app is installed but no CLI shim found"
+      ),
+      "codex"
+    );
+    expect(msg).toMatch(/Install Shell Command/);
+    expect(msg).toMatch(/Codex\.app/);
+    // Anti-regression: shouldn't tell the user to `npm install` something
+    // they perceive as already installed.
+    expect(msg).not.toMatch(/npm install/);
+  });
+
+  it("probeClaudeCode does not claim app_only_no_cli for Claude.app (different product)", async () => {
+    // Claude Code is CLI-only; "Claude.app" is the chat app, NOT a substitute
+    // for the Claude Code CLI provider. The Rust allowlist refuses to match
+    // any name except codex; verify the JS layer respects that — even if a
+    // future bug let detect_app_bundle return non-null for claude, the
+    // appPath wouldn't satisfy this provider, but the test below proves the
+    // current invariant: detect returns null and we surface not_in_path.
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "resolve_binary") return null;
+      if (cmd === "detect_app_bundle") return null; // matches Rust allowlist
+      return null;
+    });
+    const r = await probeClaudeCode();
+    if (!r.ok) expect(r.reason).toBe("not_in_path");
+  });
+});
+
+describe("friendlyProviderError not_in_path branch", () => {
+  it("codex: surfaces the GUI-app-PATH copy, not the misleading 'not installed'", async () => {
+    const msg = friendlyProviderError(
+      new Error("Codex not available (not_in_path): codex: not found in user shell PATH"),
+      "codex"
+    );
+    expect(msg).toMatch(/installed but Keepr can't find it/i);
+    // Anti-regression: the user-installed codex should NOT be told to install
+    // it again — that's the embarrassing message we're fixing.
+    expect(msg).not.toMatch(/not installed/i);
+  });
+
+  it("claude-code: surfaces the GUI-app-PATH copy", async () => {
+    const msg = friendlyProviderError(
+      new Error("Claude Code not available (not_in_path): claude: not found in user shell PATH"),
+      "claude-code"
+    );
+    expect(msg).toMatch(/installed but Keepr can't find it/i);
+  });
+});
+
+// ── Manual path override (Settings) ────────────────────────────────────────
+//
+// Last-resort escape hatch for users whose CLI lives in a custom location
+// (asdf/mise shims, /opt/<corp>/bin, hand-built fork of codex). resolveBinary
+// loads the override from app_config once per session per name, validates
+// via the validate_binary_path Rust command, and uses the canonical path if
+// valid. A broken override falls through to shell + bundle detection rather
+// than throwing — moving a binary shouldn't strand the user.
+
+describe("resolveBinary — Settings path override", () => {
+  it("override takes priority over shell resolution", async () => {
+    // Even though shell resolution would return /usr/bin/codex, the override
+    // wins. Proves the priority order in resolveBinary's flow doc.
+    getConfigMock.mockImplementation(async () => ({
+      codex_cli_path: "/Users/me/dev/codex-fork/codex",
+      claude_code_cli_path: "",
+    }));
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary") return "/usr/bin/codex"; // would be used absent override
+      if (cmd === "detect_app_bundle") return null;
+      if (cmd === "validate_binary_path") {
+        // Accept the override path by returning the canonical form.
+        return args?.path === "/Users/me/dev/codex-fork/codex"
+          ? "/Users/me/dev/codex-fork/codex"
+          : null;
+      }
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    const fs = await import("@tauri-apps/plugin-fs");
+    (fs.readTextFile as any).mockResolvedValueOnce("ok");
+
+    await PROVIDERS.codex.complete({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "x" }],
+    });
+    const cmdLine = FakeCommand.lastInstance?.args?.[1] || "";
+    expect(cmdLine).toMatch(/^exec '\/Users\/me\/dev\/codex-fork\/codex' /);
+    // Anti-regression: shell resolution must NOT have been used.
+    expect(cmdLine).not.toMatch(/'\/usr\/bin\/codex'/);
+  });
+
+  it("broken override falls through to shell resolution (NOT throw)", async () => {
+    // User saved a path; binary was later deleted/moved. validate_binary_path
+    // returns null. We must auto-recover via shell resolution rather than
+    // stranding the user with a hard error.
+    getConfigMock.mockImplementation(async () => ({
+      codex_cli_path: "/no/longer/here/codex",
+      claude_code_cli_path: "",
+    }));
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary") return "/opt/homebrew/bin/codex";
+      if (cmd === "detect_app_bundle") return null;
+      if (cmd === "validate_binary_path") return null; // broken override
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    const fs = await import("@tauri-apps/plugin-fs");
+    (fs.readTextFile as any).mockResolvedValueOnce("ok");
+
+    await PROVIDERS.codex.complete({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "x" }],
+    });
+    const cmdLine = FakeCommand.lastInstance?.args?.[1] || "";
+    // Shell resolution wins on the fall-through.
+    expect(cmdLine).toMatch(/^exec '\/opt\/homebrew\/bin\/codex' /);
+  });
+
+  it("override is checked once per session — invalidateCodexProbe re-reads", async () => {
+    getConfigMock.mockImplementation(async () => ({
+      codex_cli_path: "/usr/local/bin/codex",
+      claude_code_cli_path: "",
+    }));
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary") return null;
+      if (cmd === "detect_app_bundle") return null;
+      if (cmd === "validate_binary_path") return args?.path ?? null;
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    await probeCodex();
+    expect(getConfigMock).toHaveBeenCalledTimes(1);
+
+    // Force a re-probe without invalidating — should NOT re-call getConfig.
+    await probeCodex(true);
+    expect(getConfigMock).toHaveBeenCalledTimes(1);
+
+    // Now invalidate and re-probe — getConfig must be called again so a
+    // newly-saved override is picked up.
+    invalidateCodexProbe();
+    await probeCodex();
+    expect(getConfigMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("empty override string is treated as no override (does NOT call validate_binary_path)", async () => {
+    // Sanity: a fresh install has codex_cli_path: "" — the validate command
+    // must not run on every probe.
+    getConfigMock.mockImplementation(async () => ({
+      codex_cli_path: "",
+      claude_code_cli_path: "",
+    }));
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary") return args?.name ?? null;
+      if (cmd === "detect_app_bundle") return null;
+      if (cmd === "validate_binary_path") return null;
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    await probeCodex();
+    const validateCalls = invokeMock.mock.calls.filter(
+      (c) => c[0] === "validate_binary_path"
+    ).length;
+    expect(validateCalls).toBe(0);
+  });
+});
+
+// ── Claude spawn through sh wrapper (capability fix, §5) ───────────────────
+//
+// claudeCode.complete + probeClaudeCode used to call runCli(claudeBin, args)
+// directly, but Tauri's shell:allow-spawn capability matches by program name
+// — passing /opt/homebrew/bin/claude instead of "claude" would be rejected.
+// Wrapping through `sh -c 'exec <claudeBin> ...'` means Tauri only sees `sh`
+// (which is allowed); the absolute path is just a string inside the script,
+// never matched against the allowlist. These tests lock in the wrap.
+
+describe("claudeCode spawns through sh wrapper [regression: capability allowlist]", () => {
+  it("claudeCode.complete spawns sh, with the resolved claude path inside the cmd line", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "resolve_binary") return "/opt/homebrew/bin/claude";
+      return null;
+    });
+    FakeCommand.plan = {
+      stdout: ['{"result":"hi","usage":{"input_tokens":1,"output_tokens":1}}'],
+      exitCode: 0,
+    };
+    await PROVIDERS["claude-code"].complete({
+      model: "claude-haiku-4-5-20251001",
+      messages: [{ role: "user", content: "ping" }],
+    });
+    expect(FakeCommand.lastInstance?.program).toBe("sh");
+    const cmdLine = FakeCommand.lastInstance?.args?.[1] || "";
+    expect(cmdLine).toMatch(/^exec '\/opt\/homebrew\/bin\/claude' /);
+    // Anti-regression: must NOT spawn claude as the program directly. That's
+    // exactly the capability-rejection bug.
+    expect(FakeCommand.lastInstance?.program).not.toBe("claude");
+    expect(FakeCommand.lastInstance?.program).not.toBe("/opt/homebrew/bin/claude");
+  });
+
+  it("probeClaudeCode also spawns through sh", async () => {
+    invokeMock.mockImplementation(async (cmd: string) => {
+      if (cmd === "resolve_binary") return "/opt/homebrew/bin/claude";
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    await probeClaudeCode();
+    expect(FakeCommand.lastInstance?.program).toBe("sh");
+    const cmdLine = FakeCommand.lastInstance?.args?.[1] || "";
+    expect(cmdLine).toMatch(/'\/opt\/homebrew\/bin\/claude'/);
   });
 });

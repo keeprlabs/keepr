@@ -1,5 +1,6 @@
 mod secrets;
 mod fs_atomic;
+mod binresolve;
 
 use tauri_plugin_sql::{Migration, MigrationKind};
 
@@ -314,6 +315,9 @@ pub fn run() {
             fs_atomic::acquire_lock,
             fs_atomic::release_lock,
             fs_atomic::list_md_files,
+            binresolve::resolve_binary,
+            binresolve::detect_app_bundle,
+            binresolve::validate_binary_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keepr");
