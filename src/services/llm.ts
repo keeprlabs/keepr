@@ -4,9 +4,11 @@
 
 import { fetch } from "@tauri-apps/plugin-http";
 import { Command } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
 import { tempDir, join } from "@tauri-apps/api/path";
 import { writeTextFile, readTextFile, remove, mkdir } from "@tauri-apps/plugin-fs";
 import { SECRET_KEYS, getSecret } from "./secrets";
+import { getConfig } from "./db";
 
 export type LLMProviderId = "anthropic" | "openai" | "openrouter" | "custom" | "claude-code" | "codex";
 
@@ -29,7 +31,14 @@ export interface CliProviderMeta {
  *  generic "failed" message. */
 export type ProbeResult =
   | { ok: true }
-  | { ok: false; reason: "not_installed" | "not_signed_in" | "other"; raw: string };
+  | {
+      ok: false;
+      reason: "not_installed" | "not_in_path" | "app_only_no_cli" | "not_signed_in" | "other";
+      raw: string;
+      /** Set when reason === "app_only_no_cli". Path to the detected .app
+       *  bundle (e.g. "/Applications/Codex.app") so the UI can name it. */
+      appPath?: string;
+    };
 
 export interface LLMMessage {
   role: "system" | "user" | "assistant";
@@ -349,6 +358,141 @@ interface RunCliOpts {
   onStdoutLine?: (line: string) => void;
 }
 
+// ---- Absolute-path resolution for CLI binaries -----------------------------
+
+/** Cache of resolved absolute paths, keyed by binary name. macOS GUI apps
+ *  inherit a minimal PATH from Launch Services, so `sh -c 'exec codex'` fails
+ *  with "codex: not found" even when the binary works in Terminal. The Rust
+ *  command resolves via the user's login+interactive shell so we get the same
+ *  PATH the user sees in Terminal, then we cache the absolute path and use it
+ *  directly — PATH stops mattering. Same lifetime as _codexProbeCache; cleared
+ *  by invalidateCodexProbe / invalidateClaudeProbe. */
+const _binPathCache = new Map<string, string>();
+
+/** Session-level guard: have we already loaded the user's saved CLI-path
+ *  override from app_config for this binary name? Avoids hitting SQLite
+ *  on every resolveBinary call. Cleared by invalidate*Probe so a Settings
+ *  save → re-probe flow re-reads the new value. */
+const _overrideCheckedThisSession = new Set<string>();
+
+/** Map a CLI binary name to the corresponding app_config override key. */
+function overrideConfigKey(name: string): keyof import("../lib/types").AppConfig | null {
+  if (name === "codex") return "codex_cli_path";
+  if (name === "claude") return "claude_code_cli_path";
+  return null;
+}
+
+/** Marker error thrown when the user's shell can't find the named binary.
+ *  Caught and translated to ProbeResult `not_in_path` so the UI can render
+ *  the "installed but not on the GUI app's PATH" copy instead of the
+ *  misleading "not installed" message. */
+class NotInPathError extends Error {
+  constructor(name: string) {
+    super(`${name}: not found in user shell PATH`);
+    this.name = "NotInPathError";
+  }
+}
+
+/** Thrown when the user has the macOS .app bundle (e.g. /Applications/Codex.app)
+ *  but no CLI shim is registered. Different copy from NotInPathError because
+ *  the fix is different: open the app and run its "Install Shell Command"
+ *  action, not `npm install`. The .app path travels on the error so the UI
+ *  can name what it found. */
+class AppOnlyNoCliError extends Error {
+  appPath: string;
+  constructor(name: string, appPath: string) {
+    super(`${name}: ${appPath} is installed but no CLI shim found`);
+    this.name = "AppOnlyNoCliError";
+    this.appPath = appPath;
+  }
+}
+
+/** Resolve an unqualified CLI name (e.g. "codex") to an absolute path
+ *  (e.g. "/opt/homebrew/bin/codex") via the user's login shell. Cached.
+ *
+ *  Two failure modes — the caller cares about both:
+ *    - AppOnlyNoCliError: shell can't find the CLI, but we DID find a known
+ *      macOS .app bundle (e.g. /Applications/Codex.app). User installed the
+ *      desktop app and reasonably expected it to satisfy the CLI provider.
+ *      Right answer is "open the app and install its shell command", not
+ *      "npm install".
+ *    - NotInPathError: shell can't find the CLI AND no .app bundle present.
+ *      Either truly not installed or hidden in some non-standard location.
+ *      Surface as the install-or-symlink message. */
+async function resolveBinary(name: string): Promise<string> {
+  // 0. User override from Settings — checked once per session per name.
+  //    A broken/stale override falls through to shell + bundle detection
+  //    (rather than throwing) so a moved binary auto-recovers via PATH.
+  if (!_overrideCheckedThisSession.has(name)) {
+    _overrideCheckedThisSession.add(name);
+    const key = overrideConfigKey(name);
+    if (key) {
+      try {
+        const cfg = await getConfig();
+        const userPath = (cfg[key] as string) ?? "";
+        if (userPath) {
+          const validated = await invoke<string | null>("validate_binary_path", {
+            path: userPath,
+          });
+          if (validated) {
+            _binPathCache.set(name, validated);
+            return validated;
+          }
+          // userPath is stored but no longer points at a valid executable.
+          // Fall through to auto-detect. The probe surfaces this state via
+          // its existing not_in_path / app_only_no_cli copy; Settings UI
+          // can additionally show "saved path is no longer valid" by
+          // reading cfg[key] and seeing the resolved path differ.
+        }
+      } catch {
+        // getConfig or invoke failed — fall through to shell resolution.
+      }
+    }
+  }
+
+  const cached = _binPathCache.get(name);
+  if (cached) return cached;
+  let path: string | null = null;
+  try {
+    path = await invoke<string | null>("resolve_binary", { name });
+  } catch {
+    // Tauri context not available (test env without invoke mock, or invoke
+    // command failed to register). Fall through to the bare-name fallback —
+    // production builds always have invoke; tests mock it explicitly.
+    return name;
+  }
+  if (path) {
+    _binPathCache.set(name, path);
+    return path;
+  }
+  // Shell couldn't resolve — check the known .app bundle locations before
+  // declaring it not-installed. If the user has the desktop app, we want to
+  // point them at the right fix.
+  let appPath: string | null = null;
+  try {
+    appPath = await invoke<string | null>("detect_app_bundle", { name });
+  } catch {
+    // Best-effort. If this invoke fails we just fall through to NotInPathError.
+  }
+  if (appPath) throw new AppOnlyNoCliError(name, appPath);
+  throw new NotInPathError(name);
+}
+
+/** Drop the resolved-path cache for a single binary AND the session-level
+ *  override-checked flag. Called from invalidateCodexProbe /
+ *  invalidateClaudeProbe so the next probe re-resolves after the user
+ *  installs the CLI, moves it into PATH, or saves a new override path
+ *  via Settings. */
+function invalidateBinaryPath(name: string): void {
+  _binPathCache.delete(name);
+  _overrideCheckedThisSession.delete(name);
+}
+
+/** Test-only: read the resolved-path cache without triggering a resolve. */
+export function _peekBinaryPathCache(name: string): string | null {
+  return _binPathCache.get(name) ?? null;
+}
+
 /** POSIX shell single-quote any string. Wraps the input in `'...'` and
  *  escapes embedded single quotes by ending the quoted region, inserting a
  *  literal `'`, and reopening the quoted region: `'` -> `'"'"'`. Safe for
@@ -544,7 +688,15 @@ const claudeCode: LLMProvider = {
     }
     args.push(userContent);
 
-    const result = await runCli("claude", args, {
+    const claudeBin = await resolveBinary("claude");
+    // Wrapped through `sh -c 'exec <path> ... < /dev/null'` for two reasons:
+    //   1. Tauri's shell:allow-spawn capability matches by program name. The
+    //      allowlist whitelists "claude" — passing /opt/homebrew/bin/claude
+    //      directly would be rejected as "program not allowed". Wrapping
+    //      means Tauri only sees `sh` (allowed); the absolute path is just
+    //      a string inside the script, never matched against the allowlist.
+    //   2. Symmetry with codex.complete (already wrapped for stdin-EOF).
+    const result = await runCliShellWrapped(claudeBin, args, {
       env: CLAUDE_SPAWN_ENV,
       signal: opts.signal,
     });
@@ -711,7 +863,9 @@ const codex: LLMProvider = {
       const eventLines: string[] = [];
       // Wrapped in sh so stdin is closed (`< /dev/null`) — codex would
       // otherwise block forever waiting for stdin EOF. See runCliShellWrapped.
-      const result = await runCliShellWrapped("codex", args, {
+      // Absolute path so the spawn doesn't depend on the GUI app's minimal PATH.
+      const codexBin = await resolveBinary("codex");
+      const result = await runCliShellWrapped(codexBin, args, {
         signal: opts.signal,
         onStdoutLine: (line) => {
           // Tauri may emit a chunk with embedded newlines; split on \n so the
@@ -783,8 +937,26 @@ export async function probeClaudeCode(force = false): Promise<ProbeResult> {
   const promise = (async (): Promise<ProbeResult> => {
     const args = ["--print", "--model", "haiku", "Reply with just: ok"];
     let result: RunCliResult;
+    let claudeBin: string;
     try {
-      result = await runCli("claude", args, { env: CLAUDE_SPAWN_ENV });
+      claudeBin = await resolveBinary("claude");
+    } catch (e: any) {
+      const raw = String(e?.message || e);
+      let r: ProbeResult;
+      if (e instanceof AppOnlyNoCliError) {
+        r = { ok: false, reason: "app_only_no_cli", raw, appPath: e.appPath };
+      } else if (e instanceof NotInPathError) {
+        r = { ok: false, reason: "not_in_path", raw };
+      } else {
+        r = classifyCliError(raw, "claude");
+      }
+      _claudeProbeCache = r;
+      return r;
+    }
+    try {
+      // sh-wrapped so an absolute path doesn't trip the shell:allow-spawn
+      // capability check. See claudeCode.complete for the full reasoning.
+      result = await runCliShellWrapped(claudeBin, args, { env: CLAUDE_SPAWN_ENV });
     } catch (e: any) {
       const r: ProbeResult = classifyCliError(String(e?.message || e), "claude");
       _claudeProbeCache = r;
@@ -810,9 +982,12 @@ export async function probeClaudeCode(force = false): Promise<ProbeResult> {
 }
 
 /** Wipe the cached Claude Code probe result. Call after the user reports
- *  they ran `claude login` so the next probeClaudeCode() actually re-checks. */
+ *  they ran `claude login` so the next probeClaudeCode() actually re-checks.
+ *  Also drops the cached absolute path — the user may have just installed the
+ *  CLI or moved it into PATH, and we want the next probe to re-resolve. */
 export function invalidateClaudeProbe(): void {
   _claudeProbeCache = null;
+  invalidateBinaryPath("claude");
 }
 
 /** Test-only: read the cache without triggering a probe. */
@@ -847,10 +1022,26 @@ export async function probeCodex(force = false): Promise<ProbeResult> {
         "Reply with just: ok",
       ];
       let result: RunCliResult;
+      let codexBin: string;
+      try {
+        codexBin = await resolveBinary("codex");
+      } catch (e: any) {
+        const raw = String(e?.message || e);
+        let r: ProbeResult;
+        if (e instanceof AppOnlyNoCliError) {
+          r = { ok: false, reason: "app_only_no_cli", raw, appPath: e.appPath };
+        } else if (e instanceof NotInPathError) {
+          r = { ok: false, reason: "not_in_path", raw };
+        } else {
+          r = classifyCliError(raw, "codex");
+        }
+        _codexProbeCache = r;
+        return r;
+      }
       try {
         // Same sh-wrapper trick as codex.complete: codex would hang waiting
         // for stdin EOF on a Tauri-spawned pipe.
-        result = await runCliShellWrapped("codex", args);
+        result = await runCliShellWrapped(codexBin, args);
       } catch (e: any) {
         // runCli throws when the spawn itself fails (binary missing), so the
         // error message carries "command not found" or similar.
@@ -884,9 +1075,11 @@ export async function probeCodex(force = false): Promise<ProbeResult> {
 }
 
 /** Wipe the cached probe result. Call after the user reports they ran
- *  `codex login` so the next probeCodex() actually re-checks. */
+ *  `codex login` so the next probeCodex() actually re-checks. Also drops the
+ *  cached absolute path so the next probe re-resolves via the user's shell. */
 export function invalidateCodexProbe(): void {
   _codexProbeCache = null;
+  invalidateBinaryPath("codex");
 }
 
 /** Test-only: read the cache without triggering a probe. */
@@ -936,11 +1129,23 @@ export function friendlyProviderError(e: any, provider: LLMProviderId): string {
   console.error("[keepr] provider error:", e?.message || e);
 
   if (provider === "codex") {
+    if (raw.includes("app_only_no_cli") || raw.includes("is installed but no cli shim")) {
+      return "Codex.app is installed but its command-line tool isn't enabled. Open Codex → Settings → Install Shell Command, then click Detect again.";
+    }
+    if (raw.includes("not_in_path") || raw.includes("not found in user shell")) {
+      return "Codex is installed but Keepr can't find it from a GUI launch. macOS apps don't inherit your shell PATH. Fix: in Terminal, run `sudo ln -sf $(which codex) /usr/local/bin/codex`, then click Detect again.";
+    }
     if (raw.includes("not_installed") || raw.includes("command not found")) {
       return "Codex CLI not installed. Install with `npm install -g @openai/codex` or see github.com/openai/codex.";
     }
     if (raw.includes("not_signed_in") || raw.includes("codex login") || raw.includes("not logged in")) {
       return "Codex CLI is installed but not signed in. Run `codex login` in a terminal, then click Detect again.";
+    }
+  }
+
+  if (provider === "claude-code") {
+    if (raw.includes("not_in_path") || raw.includes("not found in user shell")) {
+      return "Claude Code is installed but Keepr can't find it from a GUI launch. macOS apps don't inherit your shell PATH. Fix: in Terminal, run `sudo ln -sf $(which claude) /usr/local/bin/claude`, then click Detect again.";
     }
   }
 
