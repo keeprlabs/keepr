@@ -148,6 +148,16 @@ v0.1.x shipped the foundation: five workflows, four data sources, local memory, 
 
 MIT © Keepr Labs. See [`LICENSE`](./LICENSE).
 
+## Star History
+
+<a href="https://star-history.com/#keeprlabs/keepr&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=keeprlabs/keepr&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=keeprlabs/keepr&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=keeprlabs/keepr&type=Date" />
+  </picture>
+</a>
+
 ---
 
 <p align="center">
