@@ -13,6 +13,14 @@ src-tauri/WixTools/
 *.app.tar.gz
 *.app.tar.gz.sig
 
+# ctxd sidecar — fetched at build time by scripts/fetch-ctxd.ts
+src-tauri/binaries/
+
+# Benchmark output (criterion HTML/CSV; checked-in CSV summaries OK)
+src-tauri/target/criterion/
+bench-results/*.csv
+bench-results/*.html
+
 # Editor
 .vscode/*
 !.vscode/extensions.json

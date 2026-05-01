@@ -15,6 +15,13 @@ import { getPersonFacts, getQueryHistory, saveQueryAnswer } from "../services/db
 import { getConfig } from "../services/db";
 import { getProvider } from "../services/llm";
 import { renderSimpleMarkdown } from "../lib/markdown";
+import {
+  isEmptyResult,
+  isTransientError,
+  memoryRead,
+  type EventRow,
+} from "../services/ctxStore";
+import { personSubject } from "../services/ctxSubjects";
 
 // ---------------------------------------------------------------------------
 // LLM-backed query
@@ -55,9 +62,11 @@ async function queryPersonFacts(
 interface PersonDetailProps {
   member: TeamMember;
   onBack: () => void;
+  /** v0.2.7+: open the right-edge RelatedPanel for a ctxd subject. */
+  onOpenSubject?: (subject: string) => void;
 }
 
-export function PersonDetail({ member, onBack }: PersonDetailProps) {
+export function PersonDetail({ member, onBack, onOpenSubject }: PersonDetailProps) {
   const [facts, setFacts] = useState<PersonFact[]>([]);
   const [queryText, setQueryText] = useState("");
   const [querying, setQuerying] = useState(false);
@@ -350,6 +359,11 @@ export function PersonDetail({ member, onBack }: PersonDetailProps) {
               </div>
             ))}
           </div>
+
+          <MemoryLayerSection
+            member={member}
+            onOpenSubject={onOpenSubject}
+          />
         </div>
       </div>
     </div>
@@ -445,4 +459,140 @@ function groupByWeek(
     label,
     facts,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// MemoryLayerSection — v0.2.7 PR 7
+// ---------------------------------------------------------------------------
+//
+// Shows ctxd events for this person under /keepr/people/{ctxd_uuid}.
+// Lazy: ctxd_uuid is only populated after the first dual-write fires
+// (see memory.ts dualWriteSession). Until then we render a quiet
+// "Memory will appear after the next session run" hint.
+//
+// This section sits BELOW the existing fact timeline (which comes from
+// person_facts in SQLite). The two views agree but aren't identical —
+// ctxd carries the full event payload; person_facts is a curated slice.
+
+function MemoryLayerSection({
+  member,
+  onOpenSubject,
+}: {
+  member: TeamMember;
+  onOpenSubject?: (subject: string) => void;
+}) {
+  const [events, setEvents] = useState<EventRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!member.ctxd_uuid) {
+      setEvents([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const subject = personSubject(member.ctxd_uuid!);
+        const rows = await memoryRead(subject);
+        if (!cancelled) setEvents(rows);
+      } catch (err) {
+        if (cancelled) return;
+        if (isEmptyResult(err)) {
+          setEvents([]);
+        } else if (isTransientError(err)) {
+          setEvents([]);
+          setError("Memory layer offline.");
+        } else {
+          setEvents([]);
+          setError(
+            err instanceof Error ? err.message : "Memory read failed."
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [member.ctxd_uuid]);
+
+  // Don't render the heading if person has no ctxd_uuid AND no events —
+  // would be confusing noise on a freshly-onboarded teammate.
+  if (!member.ctxd_uuid && events?.length === 0) {
+    return (
+      <div className="hair-b mt-10 mb-4 pb-2 flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+          Memory layer
+        </span>
+        <span className="text-[10px] text-ink-ghost">
+          appears after next session run
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-10">
+      <div className="hair-b mb-4 pb-2 flex items-center justify-between gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+          Memory layer
+        </span>
+        {member.ctxd_uuid && onOpenSubject && (
+          <button
+            onClick={() => onOpenSubject(personSubject(member.ctxd_uuid!))}
+            className="text-[10px] text-ink-faint hover:text-ink"
+          >
+            related ⇢
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mb-3 text-[11px] text-ink-faint">{error}</div>
+      )}
+      {events === null && (
+        <div className="px-2 py-2 text-xs text-ink-faint">Loading…</div>
+      )}
+      {events !== null && events.length === 0 && !error && (
+        <div className="px-2 py-2 text-[11px] text-ink-faint">
+          No memory-layer events for this person yet. The next session run
+          will populate this view.
+        </div>
+      )}
+      <div className="flex flex-col gap-1">
+        {events?.slice(0, 50).map((ev) => (
+          <button
+            key={ev.id}
+            onClick={() => onOpenSubject?.(ev.subject)}
+            className="row-hover flex items-start gap-3 rounded-md px-2 py-2 text-left"
+          >
+            <span className="mt-[3px] shrink-0 rounded-full border border-hairline px-2 py-[1px] text-[10px] uppercase tracking-[0.08em] text-ink-faint">
+              {ev.event_type.replace(/^person\./, "")}
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm text-ink-soft truncate">
+                {memoryTitle(ev)}
+              </div>
+              <div className="mt-1 text-[10px] text-ink-faint tabular-nums">
+                {fmtDay(ev.timestamp)}
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+      {events && events.length > 50 && (
+        <p className="mt-3 text-[10px] text-ink-faint">
+          Showing 50 of {events.length}. Open the cmd+k palette or the
+          memory search screen for more.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function memoryTitle(ev: EventRow): string {
+  const data = ev.data as Record<string, unknown> | null | undefined;
+  return String(
+    (data && (data.line || data.summary || data.display_name)) ??
+      ev.event_type
+  );
 }

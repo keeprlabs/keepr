@@ -2,6 +2,237 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
+## v0.2.7 — ctxd memory layer (Unreleased)
+
+Bundling [`keeprlabs/ctxd`](https://github.com/keeprlabs/ctxd) v0.3.0 as
+Keepr's default memory substrate. Side-by-side with the existing markdown
+store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
+
+> NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
+> plugin). This is a separate, independent milestone. Both ship.
+
+### PR 11 — `feat/onboarding-reingest-banner`
+
+- New `src/components/MemoryFirstLaunchBanner.tsx` — quiet header strip
+  that appears once per install, the first time both:
+    1. `app_config.memory_first_launch_seen` is false, AND
+    2. `memory_status` reports daemon ready.
+- Body explains the v0.2.7 reality (memory builds forward; v0.4 imports
+  the rest), points users at ⌘K and the search screen, and offers a
+  "Got it" dismiss button that flips the flag.
+- New AppConfig field `memory_first_launch_seen: boolean` (default false).
+- App.tsx mounts the banner directly under the Titlebar so the strip
+  sits above sidebar + main view without disturbing layout.
+- Robust degradation: getConfig failure → no banner, memoryStatus
+  failure → no banner, daemon not ready → retry once after 3s then
+  give up for the session.
+- 6 new vitest tests (338 total): hidden when seen=true, visible when
+  seen=false + ready, hidden during starting state, dismiss writes flag
+  + unmounts, getConfig failure → silent hide, memoryStatus failure →
+  silent hide.
+
+### PR 9 — `feat/activity-sidebar`
+
+- New `src/components/ActivitySidebar.tsx` — collapsible right-edge panel
+  with a small `activity ▸` toggle button. Default-collapsed; opens to
+  ~320px wide.
+- Calls `memory_subscribe('/keepr/**')` on open. Until v0.4 SDK exposes
+  the real EventStream, the panel renders a "Coming in v0.4" preview
+  with a "What you'll see" event-type list (github, session, person,
+  follow-up, topic). Engineer-friendly debug line shows the SDK note.
+- Offline / generic-error states render distinct hints; never blocks
+  the rest of the UI.
+- Wired in App.tsx as a globally-affixed component (z-30, below palette
+  and RelatedPanel z-40).
+- 8 new vitest tests (332 total): default-collapsed, no subscribe call
+  before open, default vs custom pattern, stub-preview render, offline
+  hint, generic-error hint, close+reopen flow, header pattern display.
+
+### PR 7 — `feat/person-page-ctxd`
+
+- New `MemoryLayerSection` component appended to `PersonDetail` below
+  the existing fact timeline. Calls `memoryRead(personSubject(uuid))`
+  for members whose `ctxd_uuid` is populated; renders rows with the
+  same row-hover styling as the rest of the screen.
+- Lazy `ctxd_uuid`: when null (member hasn't been seen by a session
+  run since v0.2.7 deployed), the section renders a "appears after
+  next session run" hint instead of an error.
+- Each row click opens the RelatedPanel for that subject. Section
+  header carries a "related ⇢" affordance for the person itself.
+- Offline / error states render quietly without breaking the page.
+- App.tsx threads `onOpenSubject` through to `setRelatedSubject`.
+- No dedicated test file: composed of well-tested pieces (memoryRead,
+  personSubject, isEmptyResult/isTransientError); writing PersonDetail
+  mocks would require rebuilding LLM/db/markdown harnesses for marginal
+  signal. Integration coverage via RelatedPanel + ctxStore tests.
+
+### PR 4 — `feat/memory-evidence-bridge`
+
+- New `dualWriteEvidenceBatch()` in `src/services/memory.ts` mirrors
+  every `evidence_items` insert into a ctxd `evidence.recorded` event
+  under the row's `subject_path`. Surfaces real GitHub/Slack/Jira/
+  Linear/GitLab content in MemorySearch and the cmd+k palette.
+- Wired into `pipeline.ts` immediately after `insertEvidence` returns
+  — same fire-and-forget Promise.allSettled pattern as session events.
+- Bridge namespace `/keepr/evidence/{source}/...` (not `/work/{source}`)
+  per ADR-001, leaving room for a future ctxd-adapter-* binary to
+  own the canonical `/work` namespace and a one-time consolidation pass.
+- Renamed from "GitHub bridge" to "evidence bridge" in scope —
+  evidenceSubjectFor handles all five non-adapter sources, not just
+  GitHub.
+- 6 new vitest tests (324 total): kill-switch off, empty input,
+  null subject_path skip, content_snippet truncation, partial-failure
+  tolerance, all-skipped no-warn.
+
+### PR 10 — `feat/pulse-citations`
+
+- `SessionReader` evidence cards gain a `related ⇢` chip next to the
+  existing `open ↗` chip when the row has a `subject_path` (populated
+  by PR 3's dual-write pipeline). Clicking opens the RelatedPanel from
+  PR 8 with that evidence's ctxd subject.
+- New `onOpenRelated` prop on `SessionReader`; App.tsx wires it to
+  `setRelatedSubject`. Same panel-open path as MemorySearch row clicks.
+- Pure rendering change — no prompt edits, no LLM behavior change.
+  Older evidence rows (subject_path NULL) get no chip; v0.4 backfill
+  will populate them.
+- Behavior is covered transitively:
+  - `evidenceSubjectFor` mapping → ctxSubjects tests (24).
+  - `RelatedPanel` open/empty/error states → RelatedPanel tests (11).
+  - The chip itself is a 4-line conditional render; no dedicated test
+    to avoid a heavy SessionReader mock-graph rebuild.
+
+### PR 8 — `feat/related-panel`
+
+- New `src/components/RelatedPanel.tsx` — right-edge panel that opens
+  when a memory subject is selected (currently from MemorySearch row
+  clicks; PR 10 will also wire it to pulse-citation chips).
+- Calls `memory_related(subject)`. Groups results by `data.relation`
+  field (when ctxd-adapter writes one) or by `event_type` as fallback.
+- Empty / not_yet_supported / offline / internal-error states each
+  render distinct messaging — never a toast, never a crash.
+- Wired in App.tsx as a single `relatedSubject` state; MemorySearch's
+  `onOpenSubject` opens the panel; the panel's row click drills into
+  another subject without closing.
+- 11 new vitest tests (319 total): covers null-subject (renders
+  nothing), empty array, not_yet_supported, offline, internal,
+  grouping by relation field, fallback grouping by event_type, click
+  drilldown, close button, re-fetch on subject change.
+- Note: `memory_related` returns `NotYetSupported` against the v0.3.0
+  ctxd SDK. The panel renders "Coming soon" until v0.4 SDK lands —
+  scaffolding ships now so the upgrade is a single dep bump.
+
+### PR 6 — `feat/memory-search`
+
+- New screen `src/screens/MemorySearch.tsx` — full-results view backed
+  by `memory_query`. Filter chips for source (all/keepr/github/slack/
+  jira/linear/gitlab), date range (all/7d/30d/90d), and team members.
+  Subject-prefix filter chip when launched from the cmd+k palette.
+- New `ViewKey` variant `{ kind: "memory_search", q?, subject? }`.
+- `App.tsx` wires the cmd+k palette's `onNavigateSubject` to navigate
+  into MemorySearch with the subject pre-filled.
+- 200ms debounce on the search input. Empty state honestly explains
+  the v0.2.7 forward-only reality (older history lands in v0.4 import).
+- Offline state surfaces an inline banner ("Memory layer is offline…")
+  rather than a toast.
+- New `src-tauri/benches/memory_query.rs` — criterion benchmark that
+  spawns a real ctxd daemon, pre-loads 1k/10k/50k synthetic events,
+  and times `query` with `QueryView::Fts` and `QueryView::Log`. The
+  50k case is gated by `KEEPR_BENCH_50K=1` (slow ingest). Tracks the
+  kill-criteria p95 < 600ms threshold.
+- New `bench-results/README.md` documents how to run.
+- 11 new vitest tests covering: empty state, offline banner,
+  not_yet_supported→empty, render shape, source filter (keepr-only,
+  github bridge), 7d range filter, click→onOpenSubject,
+  initialSubject scoping, debounce, person filter chip render.
+
+### PR 5 — `feat/cmdk-palette`
+
+- `CommandPalette` now also queries the ctxd memory layer via
+  `memory_query(/keepr, top_k=8)` on a 150ms debounce. Memory hits render
+  in a new "In memory layer" section under the existing file-search
+  results.
+- Memory rows show a subject-derived label (`person`, `session`, `topic`,
+  `follow-up`, `status`, `evidence`, or the source name for `/work/**`),
+  the event's title (best-effort from `data.summary`/`line`/`name`), and
+  the canonical subject path.
+- New optional `onNavigateSubject?: (subject: string) => void` prop on
+  `CommandPalette`. PR 6 (MemorySearch) wires it; without a handler the
+  palette just closes — no crash.
+- Transient (offline / timeout) and `not_yet_supported` errors collapse
+  to empty results — no toast, no spinner, low-stakes UX.
+- 8 new vitest tests covering: skip-when-empty, skip-under-2-chars,
+  debounce coalescing, render shape, transient-error path,
+  not_yet_supported path, Enter→onNavigateSubject, close-clears-hits.
+
+### PR 3 — `feat/memory-subjects`
+
+- New `src/services/ctxSubjects.ts` — canonical subject path builders for
+  every Keepr concept (person, session, topic, follow-up, status, evidence
+  bridge), `EVENT_TYPES` vocabulary, `SCHEMA_VERSION = 1`. Public contract;
+  see ADR-001.
+- New `docs/decisions/001-ctxd-subject-schema.md` — locks the schema.
+  UUIDs for person ids (not slugs); `/keepr/**` for Keepr-domain events,
+  `/work/**` reserved for adapter-owned namespaces, `/keepr/evidence/**`
+  as the bridge until upstream ctxd adapters ship.
+- New `db.ts ensureCtxdUuid(memberId)` lazy-populates `team_members.ctxd_uuid`
+  on first event-write per person.
+- `EvidenceItem.subject_path` populated on insert via `evidenceSubjectFor()`.
+  Migration #9 column finally has a writer; PR 10 will read it for
+  citation chips.
+- `pipeline.ts insertEvidence` now passes `subject_path` for every row.
+- `AppConfig.memory_dual_write` (default true) — kill switch; markdown
+  remains canonical regardless.
+- `memory.ts dualWriteSession()` — fire-and-forget after the markdown
+  write loop. Emits `session.completed`, `status.updated` (team_pulse /
+  weekly_update only), `person.fact` (per delta line, after lazy uuid
+  lookup), `topic.note` (per parsed topic). All under canonical subjects.
+  Promise.allSettled tolerates per-event offline failures with one warn
+  log.
+- 35 new vitest tests: 24 ctxSubjects (golden + validators + helpers),
+  11 dualWrite (kill switch, per-workflow events, person/topic emission,
+  failure tolerance, schema_version).
+
+### PR 2 — `feat/memory-commands-skeleton`
+
+- Full Tauri command surface: `memory_query`, `memory_read`, `memory_write`,
+  `memory_subjects`, `memory_related`, `memory_subscribe`, plus the existing
+  `memory_status`. All wrap `ctxd_client::CtxdClient` (git-pinned to
+  `keeprlabs/ctxd@v0.3.0`).
+- New `src-tauri/src/memory/client.rs` (`ClientCell`) with `Arc<CtxdClient>`
+  for cheap, lock-free fan-out to commands. Built once on `Ready` transition
+  by `daemon::spawn`; cleared on shutdown.
+- New `src-tauri/src/memory/errors.rs` (`MemoryError` tagged-enum) — six
+  variants serialized with `kind` discriminator. `From<CtxdError>` classifies
+  by substring (offline / timeout / not_found / bad_request / internal).
+- `memory_subjects` and `memory_related` return `NotYetSupported` until the
+  v0.4 SDK lands those primitives — the v0.3.0 SDK only exposes them via MCP.
+  Frontend treats `not_yet_supported` as empty-state, not as error.
+- `memory_subscribe` returns an opaque stub; PR 9 (activity sidebar) wires
+  the real `EventStream` → Tauri event-emit bridge.
+- Frontend wrapper `src/services/ctxStore.ts` adds the six new functions
+  plus `isEmptyResult` / `isTransientError` predicates to help UI code
+  decide between empty state and error toast.
+- New `docs/architecture/ctxd-topology.md` with a Mermaid topology diagram
+  and command-surface summary table.
+- Tests: 12 new Rust unit tests (`client.rs` × 9, `errors.rs` × 3),
+  10 new vitest tests. Total now 20 cargo + 253 vitest.
+
+### PR 1 — `feat/ctxd-bundle`
+
+- Vendor ctxd v0.3.0 prebuilt binary into `src-tauri/binaries/` via
+  `scripts/fetch-ctxd.ts` at build time. Binaries are gitignored;
+  `CTXD_TARGET=universal-apple-darwin` lipos both arch tarballs for
+  release builds. End users never fetch — DMG ships ctxd inside.
+- New `src-tauri/src/memory/` module: sidecar lifecycle (`daemon.rs`),
+  random per-user TCP ports (`ports.rs`), one Tauri command exposed:
+  `memory_status`. See `docs/decisions/002-ctxd-lifecycle.md`.
+- Migration #9: `evidence_items.subject_path` for ctxd subject pointers
+  (populated forward-only in PR 3).
+- Migration #10: `team_members.ctxd_uuid` — UUID-based person IDs in
+  ctxd subjects; slugs stay for human-readable URLs.
+- New `src/services/ctxStore.ts` thin TS wrapper over `memory_status`.
+- Settings → Memory layer panel (status indicator + refresh).
+
 ## v0.2.6 — keepr auto updater (2026-04-29)
 
 ### keepr auto updater

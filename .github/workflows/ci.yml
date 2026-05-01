@@ -52,6 +52,9 @@ jobs:
       - name: Vite build
         run: npx vite build
 
+      - name: Fetch ctxd sidecar
+        run: npm run fetch-ctxd
+
       - name: cargo check
         working-directory: src-tauri
         run: cargo check --locked
@@ -92,6 +95,11 @@ jobs:
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
+        env:
+          # tauri.conf.json's beforeBuildCommand runs `npm run fetch-ctxd`
+          # before the Rust build. CTXD_TARGET tells the script to lipo
+          # both apple-darwin architectures into a single universal binary.
+          CTXD_TARGET: universal-apple-darwin
         with:
           args: --target universal-apple-darwin
 

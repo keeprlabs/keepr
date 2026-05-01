@@ -33,7 +33,34 @@ sha2 = "0.11"
 hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
+# Used by the memory subsystem (ctxd sidecar lifecycle): TCP probe of
+# ctxd's `/health` endpoint, async sleep between retries. Tauri 2 already
+# pulls tokio into the dep tree; declaring it directly so we can use the
+# `#[tokio::test]` macro and pin the feature set we need.
+tokio = { version = "1", features = ["net", "io-util", "time", "macros", "rt"] }
+
+# Official Rust SDK for the ctxd daemon. Pinned to v0.3.0 — same version
+# as the binary fetched by scripts/fetch-ctxd.ts so the wire protocol
+# matches byte-for-byte. Not yet published to crates.io; pull from the
+# tagged git release. The client depends on `ctxd-core` + `ctxd-wire`
+# from the same workspace; cargo resolves both via the git checkout.
+ctxd-client = { git = "https://github.com/keeprlabs/ctxd.git", tag = "v0.3.0" }
+async-trait = "0.1"
+thiserror = "2"
 
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+# v0.2.7+: criterion benchmark for memory_query latency at 1k/10k/50k
+# events. Spawns a real ctxd daemon — see benches/memory_query.rs.
+# Run: `cargo bench --bench memory_query`
+criterion = { version = "0.5", default-features = false, features = ["async_tokio"] }
+tempfile = "3"
+portpicker = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[[bench]]
+name = "memory_query"
+harness = false

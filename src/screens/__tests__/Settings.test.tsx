@@ -117,6 +117,12 @@ vi.mock("../../services/memory", () => ({
   slugify: (s: string) => s.toLowerCase(),
 }));
 
+const memoryStatusMock = vi.fn();
+vi.mock("../../services/ctxStore", () => ({
+  memoryStatus: (...a: unknown[]) => memoryStatusMock(...a),
+  isReady: (s: { status: string }) => s.status === "ready",
+}));
+
 vi.mock("@tauri-apps/plugin-dialog", () => ({
   open: vi.fn(),
 }));
@@ -153,6 +159,8 @@ beforeEach(() => {
   llmMocks.probeClaudeCode.mockClear();
   llmMocks.probeCodex.mockResolvedValue({ ok: true } as { ok: true });
   llmMocks.probeClaudeCode.mockResolvedValue({ ok: true } as { ok: true });
+  memoryStatusMock.mockReset();
+  memoryStatusMock.mockResolvedValue({ status: "starting" });
 });
 
 // ---- Tests ---------------------------------------------------------------
@@ -270,5 +278,56 @@ describe("Settings — CLI provider lazy probe [lane E billing-blast-radius]", (
     await waitFor(() => expect(utils!.getByText("Local CLI")).toBeDefined());
     // self_hosted has no providers in v1, so its divider should be absent.
     expect(utils!.queryByText("Self-hosted")).toBeNull();
+  });
+});
+
+describe("Settings — Memory layer panel [v0.2.6 ctxd]", () => {
+  it("calls memoryStatus on mount and renders the panel header", async () => {
+    let utils: ReturnType<typeof render> | null = null;
+    await act(async () => {
+      utils = render(<Settings />);
+    });
+    await waitFor(() => expect(memoryStatusMock).toHaveBeenCalledTimes(1));
+    expect(utils!.getByText("Memory layer")).toBeDefined();
+  });
+
+  it("renders ready state with ports", async () => {
+    memoryStatusMock.mockResolvedValueOnce({
+      status: "ready",
+      http_port: 51234,
+      wire_port: 51235,
+    });
+    let utils: ReturnType<typeof render> | null = null;
+    await act(async () => {
+      utils = render(<Settings />);
+    });
+    await waitFor(() => expect(utils!.getByText(/Ready/)).toBeDefined());
+    expect(utils!.getByText(/51234/)).toBeDefined();
+    expect(utils!.getByText(/51235/)).toBeDefined();
+  });
+
+  it("renders offline state with reason", async () => {
+    memoryStatusMock.mockResolvedValueOnce({
+      status: "offline",
+      reason: "ctxd did not become healthy",
+    });
+    let utils: ReturnType<typeof render> | null = null;
+    await act(async () => {
+      utils = render(<Settings />);
+    });
+    await waitFor(() =>
+      expect(utils!.getByText(/Offline.*did not become healthy/)).toBeDefined()
+    );
+  });
+
+  it("renders offline state when memoryStatus rejects (no daemon)", async () => {
+    memoryStatusMock.mockRejectedValueOnce(new Error("ipc closed"));
+    let utils: ReturnType<typeof render> | null = null;
+    await act(async () => {
+      utils = render(<Settings />);
+    });
+    await waitFor(() =>
+      expect(utils!.getByText(/Offline.*ipc closed/)).toBeDefined()
+    );
   });
 });

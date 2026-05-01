@@ -37,6 +37,7 @@ import { CategoryDivider } from "../components/primitives/CategoryDivider";
 import { CliProviderPanel } from "../components/primitives/CliProviderPanel";
 import { defaultMemoryDir } from "../services/fsio";
 import { slugify } from "../services/memory";
+import { memoryStatus, type DaemonState } from "../services/ctxStore";
 import * as slack from "../services/slack";
 import * as github from "../services/github";
 import * as gitlab from "../services/gitlab";
@@ -92,6 +93,9 @@ export function Settings({
   const [linearKey, setLinearKey] = useState("");
   const [linearTeams, setLinearTeams] = useState<linear.LinearTeamRemote[]>([]);
   const [llmSaveStatus, setLlmSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+  // Memory layer (ctxd sidecar). Read-only diagnostic for v0.2.6 PR 1.
+  const [memState, setMemState] = useState<DaemonState | null>(null);
+  const [memLoading, setMemLoading] = useState(false);
   const [slackUsers, setSlackUsers] = useState<slack.SlackUser[]>([]);
   const [slackUsersLoaded, setSlackUsersLoaded] = useState(false);
   const [jiraUsers, setJiraUsers] = useState<jira.JiraUser[]>([]);
@@ -127,6 +131,25 @@ export function Settings({
 
   useEffect(() => {
     load();
+  }, []);
+
+  // Memory layer status: read once on mount; user can refresh manually.
+  // Cheap (in-process state read in Rust) — no rate limiting needed.
+  const refreshMemStatus = async () => {
+    setMemLoading(true);
+    try {
+      setMemState(await memoryStatus());
+    } catch (err) {
+      setMemState({
+        status: "offline",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setMemLoading(false);
+    }
+  };
+  useEffect(() => {
+    void refreshMemStatus();
   }, []);
 
   // Probe GitHub OAuth scope so the team-mapping panel can warn the user
@@ -924,6 +947,42 @@ export function Settings({
               await setConfig({ memory_dir: def });
               load();
             }}>Use default</Ghost>
+          </div>
+        </Panel>
+
+        <Panel title="Memory layer">
+          <p className="mb-3 text-xs text-ink-faint">
+            Local memory daemon. Started automatically with Keepr.
+          </p>
+          <div className="flex items-center gap-3">
+            <span
+              aria-hidden
+              className={
+                "inline-block h-2 w-2 rounded-full " +
+                (memState?.status === "ready"
+                  ? "bg-emerald-500"
+                  : memState?.status === "offline"
+                  ? "bg-rose-500"
+                  : "bg-amber-500")
+              }
+            />
+            <div className="flex-1 text-xs">
+              {!memState && (memLoading ? "Checking…" : "Unknown")}
+              {memState?.status === "starting" && "Starting…"}
+              {memState?.status === "ready" && (
+                <span className="text-ink">
+                  Ready — http :{memState.http_port} · wire :{memState.wire_port}
+                </span>
+              )}
+              {memState?.status === "offline" && (
+                <span className="text-ink-faint">
+                  Offline — {memState.reason}
+                </span>
+              )}
+            </div>
+            <Ghost onClick={() => void refreshMemStatus()} disabled={memLoading}>
+              Refresh
+            </Ghost>
           </div>
         </Panel>
 

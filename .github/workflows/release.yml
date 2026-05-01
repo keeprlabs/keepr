@@ -86,12 +86,19 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+<<<<<<< HEAD
+          # tauri.conf.json's beforeBuildCommand runs `npm run fetch-ctxd`
+          # before the Rust build. For universal builds we need both
+          # apple-darwin architectures lipo'd into a single binary.
+          CTXD_TARGET: universal-apple-darwin
+=======
           # Tauri updater signing (independent of Apple notarization).
           # tauri-action picks these up automatically when bundle.createUpdaterArtifacts
           # is true in tauri.conf.json. Generates Keepr.app.tar.gz, .sig, and latest.json
           # alongside the DMG and uploads them to the GitHub Release.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+>>>>>>> origin/main
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Keepr ${{ github.ref_name }}"
@@ -113,9 +120,15 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+<<<<<<< HEAD
+          # See note on signed step above — fetch-ctxd needs CTXD_TARGET
+          # to lipo the universal binary on macOS.
+          CTXD_TARGET: universal-apple-darwin
+=======
           # Tauri updater signing — required even for unsigned builds.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+>>>>>>> origin/main
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Keepr ${{ github.ref_name }}"

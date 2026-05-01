@@ -7,6 +7,9 @@ import { open as openExternal } from "@tauri-apps/plugin-shell";
 import { Titlebar } from "./components/Titlebar";
 import { Sidebar, type ViewKey } from "./components/Sidebar";
 import { CommandPalette, type CommandAction } from "./components/CommandPalette";
+import { RelatedPanel } from "./components/RelatedPanel";
+import { ActivitySidebar } from "./components/ActivitySidebar";
+import { MemoryFirstLaunchBanner } from "./components/MemoryFirstLaunchBanner";
 import { SessionReader } from "./components/SessionReader";
 import { PersonDetail } from "./components/PersonDetail";
 import { RunOverlay, type RunState } from "./components/RunOverlay";
@@ -14,6 +17,7 @@ import { Home } from "./screens/Home";
 import { Onboarding } from "./screens/Onboarding";
 import { Settings } from "./screens/Settings";
 import { MemoryView } from "./screens/MemoryView";
+import { MemorySearch } from "./screens/MemorySearch";
 import { FollowUps } from "./screens/FollowUps";
 import { TeamHeatmap } from "./screens/TeamHeatmap";
 import { ThreadGraph } from "./screens/ThreadGraph";
@@ -60,6 +64,10 @@ export default function App() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // v0.2.7+: subject currently shown in the right-hand RelatedPanel.
+  // Null = panel hidden. Opened from MemorySearch row clicks (and, in
+  // PR 10, from pulse-citation chips).
+  const [relatedSubject, setRelatedSubject] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [runState, setRunState] = useState<RunState | null>(null);
   const runControllerRef = useRef<AbortController | null>(null);
@@ -602,6 +610,7 @@ export default function App() {
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen((o) => !o)}
       />
+      <MemoryFirstLaunchBanner />
       <div className="flex flex-1 overflow-hidden">
         {sidebarOpen && (
           <Sidebar
@@ -650,6 +659,7 @@ export default function App() {
               members={members}
               onRetry={rerunSession}
               onDelete={deleteSessionAndRefresh}
+              onOpenRelated={(subject) => setRelatedSubject(subject)}
             />
           )}
           {view.kind === "memory" && (
@@ -665,6 +675,7 @@ export default function App() {
                 <PersonDetail
                   member={m}
                   onBack={() => setView({ kind: "home" })}
+                  onOpenSubject={(s) => setRelatedSubject(s)}
                 />
               ) : null;
             })()}
@@ -678,6 +689,14 @@ export default function App() {
           {view.kind === "heatmap" && <TeamHeatmap members={members} />}
           {view.kind === "graph" && <ThreadGraph members={members} />}
           {view.kind === "settings" && <Settings focusKind={view.focusKind} />}
+          {view.kind === "memory_search" && (
+            <MemorySearch
+              members={members}
+              initialQuery={view.q}
+              initialSubject={view.subject}
+              onOpenSubject={(s) => setRelatedSubject(s)}
+            />
+          )}
           </div>
         </main>
       </div>
@@ -689,6 +708,9 @@ export default function App() {
         actions={actions}
         onNavigateSession={(id) => setView({ kind: "session", id })}
         onNavigateMemory={(file) => setView({ kind: "memory", file })}
+        onNavigateSubject={(subject) =>
+          setView({ kind: "memory_search", subject })
+        }
       />
       <RunOverlay
         state={runState}
@@ -697,6 +719,12 @@ export default function App() {
         onTryLongerWindow={handleTryLongerWindow}
         onFixInSettings={handleFixInSettings}
       />
+      <RelatedPanel
+        subject={relatedSubject}
+        onClose={() => setRelatedSubject(null)}
+        onOpenSubject={(s) => setRelatedSubject(s)}
+      />
+      <ActivitySidebar />
       {demoMode && <DemoPill onExit={handleExitDemo} />}
     </div>
   );

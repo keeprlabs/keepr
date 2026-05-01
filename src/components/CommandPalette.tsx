@@ -5,6 +5,10 @@
 // Beyond commands and team members, the palette also full-text-searches
 // across session output files and memory files (status.md, memory.md) so
 // you can jump to any prior context with one keystroke.
+//
+// v0.2.7 PR 5: also queries the ctxd memory layer via `memory_query` so
+// the palette surfaces semantic hits across people, sessions, topics,
+// and evidence — not just file-level FTS.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TeamMember } from "../lib/types";
@@ -13,6 +17,8 @@ import {
   searchCorpus,
   type SearchHit,
 } from "../services/search";
+import { memoryQuery, isEmptyResult, type EventRow } from "../services/ctxStore";
+import { ROOT as MEMORY_ROOT } from "../services/ctxSubjects";
 
 export interface CommandAction {
   id: string;
@@ -29,11 +35,20 @@ interface Props {
   actions: CommandAction[];
   onNavigateSession?: (sessionId: number) => void;
   onNavigateMemory?: (file: "status" | "memory") => void;
+  /** v0.2.7+: when a memory (ctxd) hit is selected, route by subject.
+   *  Caller decides what that means — typically the MemorySearch screen
+   *  (PR 6) or a person/session detail. If unset, hitting Enter on a
+   *  memory row just closes the palette. */
+  onNavigateSubject?: (subject: string) => void;
 }
 
 type Row =
   | { kind: "action"; action: CommandAction }
-  | { kind: "hit"; hit: SearchHit };
+  | { kind: "hit"; hit: SearchHit }
+  | { kind: "memory"; event: EventRow };
+
+const MEMORY_DEBOUNCE_MS = 150;
+const MEMORY_TOP_K = 8;
 
 export function CommandPalette({
   open,
@@ -42,12 +57,14 @@ export function CommandPalette({
   actions,
   onNavigateSession,
   onNavigateMemory,
+  onNavigateSubject,
 }: Props) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const [corpus, setCorpus] = useState<
     Awaited<ReturnType<typeof buildSearchCorpus>>
   >([]);
+  const [memoryHits, setMemoryHits] = useState<EventRow[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -115,8 +132,46 @@ export function CommandPalette({
     [corpus, query]
   );
 
+  // Debounced ctxd memory query. Daemon-offline / not-yet-supported
+  // surface as empty results — never as an error toast (UX rule).
+  useEffect(() => {
+    if (!open) return;
+    const q = query.trim();
+    if (q.length < 2) {
+      setMemoryHits([]);
+      return;
+    }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const hits = await memoryQuery(MEMORY_ROOT, { topK: MEMORY_TOP_K });
+        if (!cancelled) setMemoryHits(hits);
+      } catch (err) {
+        if (cancelled) return;
+        if (isEmptyResult(err)) {
+          setMemoryHits([]);
+          return;
+        }
+        // Transient (offline / timeout) and internal errors: log + empty.
+        // The palette is a low-stakes surface; we don't toast here.
+        // eslint-disable-next-line no-console
+        console.debug("[keepr] memory_query in palette failed:", err);
+        setMemoryHits([]);
+      }
+    }, MEMORY_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [open, query]);
+
+  // Reset memory hits when the palette closes.
+  useEffect(() => {
+    if (!open) setMemoryHits([]);
+  }, [open]);
+
   // Combined row list: actions first, then a visual break, then search
-  // hits when the query is ≥2 chars.
+  // hits, then memory hits.
   const results = useMemo<Row[]>(() => {
     const rows: Row[] = filteredActions.map((a) => ({
       kind: "action",
@@ -125,8 +180,11 @@ export function CommandPalette({
     for (const h of searchHits) {
       rows.push({ kind: "hit", hit: h });
     }
+    for (const ev of memoryHits) {
+      rows.push({ kind: "memory", event: ev });
+    }
     return rows;
-  }, [filteredActions, searchHits]);
+  }, [filteredActions, searchHits, memoryHits]);
 
   useEffect(() => {
     if (cursor >= results.length) setCursor(0);
@@ -143,6 +201,8 @@ export function CommandPalette({
           onNavigateMemory?.(row.hit.memoryFile);
         }
       }
+    } else if (row.kind === "memory") {
+      onNavigateSubject?.(row.event.subject);
     }
   };
 
@@ -225,16 +285,28 @@ export function CommandPalette({
           {results.map((row, i) => {
             const active = i === cursor;
             const rowKey =
-              row.kind === "action" ? row.action.id : row.hit.id;
-            // Insert a section heading before the first search-hit row.
+              row.kind === "action"
+                ? row.action.id
+                : row.kind === "hit"
+                ? row.hit.id
+                : `mem:${row.event.id}`;
+            // Insert section headings before the first row of each kind.
             const prev = i > 0 ? results[i - 1] : null;
-            const showSectionBreak =
+            const showFileSection =
               row.kind === "hit" && (!prev || prev.kind === "action");
+            const showMemorySection =
+              row.kind === "memory" &&
+              (!prev || prev.kind === "action" || prev.kind === "hit");
             return (
               <div key={rowKey}>
-                {showSectionBreak && (
+                {showFileSection && (
                   <div className="mt-3 mb-1 px-3 text-[9.5px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
-                    In sessions & memory
+                    In sessions & memory files
+                  </div>
+                )}
+                {showMemorySection && (
+                  <div className="mt-3 mb-1 px-3 text-[9.5px] font-semibold uppercase tracking-[0.16em] text-ink-faint">
+                    In memory layer
                   </div>
                 )}
                 <button
@@ -248,7 +320,7 @@ export function CommandPalette({
                     active ? "bg-[rgba(10,10,10,0.045)]" : ""
                   }`}
                 >
-                  {row.kind === "action" ? (
+                  {row.kind === "action" && (
                     <>
                       <span
                         className={`mt-[6px] inline-block h-[6px] w-[6px] shrink-0 rounded-full transition-colors duration-180 ${
@@ -268,7 +340,8 @@ export function CommandPalette({
                         </span>
                       )}
                     </>
-                  ) : (
+                  )}
+                  {row.kind === "hit" && (
                     <>
                       <span
                         className={`mt-[3px] shrink-0 text-[10px] uppercase tracking-[0.12em] ${
@@ -290,6 +363,29 @@ export function CommandPalette({
                         </div>
                         <div className="mt-0.5 truncate text-[11px] text-ink-faint">
                           {row.hit.snippet}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {row.kind === "memory" && (
+                    <>
+                      <span
+                        className={`mt-[3px] shrink-0 text-[10px] uppercase tracking-[0.12em] ${
+                          active ? "text-ink-muted" : "text-ink-faint"
+                        }`}
+                      >
+                        {memoryRowLabel(row.event)}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div
+                          className={`truncate text-sm ${
+                            active ? "text-ink" : "text-ink-soft"
+                          }`}
+                        >
+                          {memoryRowTitle(row.event)}
+                        </div>
+                        <div className="mt-0.5 truncate text-[11px] text-ink-faint">
+                          {row.event.subject}
                         </div>
                       </div>
                     </>
@@ -320,6 +416,38 @@ export function CommandPalette({
       </div>
     </div>
   );
+}
+
+// Memory hit visual helpers.
+function memoryRowLabel(ev: EventRow): string {
+  // Subjects are slash-separated; the second segment is the kind:
+  //   /keepr/people/...     → "person"
+  //   /keepr/sessions/...   → "session"
+  //   /keepr/topics/...     → "topic"
+  //   /keepr/followups/...  → "follow-up"
+  //   /keepr/status         → "status"
+  //   /keepr/evidence/...   → "evidence"
+  //   /work/github/...      → "github"
+  const parts = ev.subject.split("/").filter(Boolean);
+  if (parts[0] === "keepr") {
+    if (parts[1] === "people") return "person";
+    if (parts[1] === "sessions") return "session";
+    if (parts[1] === "topics") return "topic";
+    if (parts[1] === "followups") return "follow-up";
+    if (parts[1] === "status") return "status";
+    if (parts[1] === "evidence") return parts[2] || "evidence";
+  }
+  if (parts[0] === "work") return parts[1] || "work";
+  return parts[0] || "memory";
+}
+
+function memoryRowTitle(ev: EventRow): string {
+  // Best-effort human-readable title from the event payload.
+  const data = ev.data as Record<string, unknown> | null | undefined;
+  const candidate =
+    (data && (data.summary || data.line || data.name || data.display_name || data.subject_label)) ??
+    ev.event_type;
+  return String(candidate);
 }
 
 function SearchGlyph() {

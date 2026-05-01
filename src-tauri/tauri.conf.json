@@ -4,9 +4,9 @@
   "version": "0.2.6",
   "identifier": "app.keepr.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run fetch-ctxd && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run fetch-ctxd && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -54,6 +54,9 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/ctxd"
     ],
     "category": "Productivity",
     "shortDescription": "AI memory layer for engineering leaders",
