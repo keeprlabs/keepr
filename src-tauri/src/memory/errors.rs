@@ -48,9 +48,6 @@ impl MemoryError {
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::BadRequest(msg.into())
     }
-    pub fn internal(msg: impl Into<String>) -> Self {
-        Self::Internal(msg.into())
-    }
     pub fn not_yet_supported(what: impl Into<String>) -> Self {
         Self::NotYetSupported(what.into())
     }

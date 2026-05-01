@@ -17,7 +17,7 @@ pub mod ports;
 use serde_json::Value;
 use tauri::State;
 
-pub use client::{ClientCell, EventRow, QueryFilters, SubscribeStub};
+pub use client::{EventRow, QueryFilters, SubscribeStub};
 pub use daemon::{shutdown, spawn, DaemonHandle, DaemonState};
 pub use errors::MemoryError;
 
