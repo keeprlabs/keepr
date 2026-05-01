@@ -123,18 +123,41 @@ async function fetchSingleTarget(triple: ReleaseTriple): Promise<void> {
 }
 
 async function fetchUniversalAppleDarwin(): Promise<void> {
-  // Tauri's universal-apple-darwin target compiles each architecture
-  // separately and lipos the resulting .app bundles itself. Each
-  // per-arch compile looks up `binaries/ctxd-{triple}` via the
-  // externalBin manifest — so we install both per-arch binaries and
-  // let Tauri's bundler do the lipo. Producing our own pre-merged
-  // `ctxd-universal-apple-darwin` would leave the per-arch lookups
-  // failing with "resource path doesn't exist".
+  // Tauri's universal-apple-darwin pipeline needs sidecar binaries at
+  // TWO different paths:
+  //   - Per-arch compile (build.rs validates externalBin):
+  //       `binaries/ctxd-aarch64-apple-darwin`,
+  //       `binaries/ctxd-x86_64-apple-darwin`
+  //   - Universal bundle (.app resource copy):
+  //       `binaries/ctxd-universal-apple-darwin`
+  // Install all three. Pre-lipo'ing only the universal one breaks
+  // compile; only installing per-arch breaks bundle.
   if (process.platform !== "darwin") {
-    throw new Error("CTXD_TARGET=universal-apple-darwin requires running on macOS");
+    throw new Error("CTXD_TARGET=universal-apple-darwin requires running on macOS (lipo)");
   }
+
   await fetchSingleTarget("aarch64-apple-darwin");
   await fetchSingleTarget("x86_64-apple-darwin");
+
+  const armPath = join(BIN_DIR, "ctxd-aarch64-apple-darwin");
+  const x86Path = join(BIN_DIR, "ctxd-x86_64-apple-darwin");
+  const universalPath = join(BIN_DIR, "ctxd-universal-apple-darwin");
+  const universalStamp = `${universalPath}.stamp`;
+  const expectedStamp = `${CTXD_VERSION}:universal-apple-darwin`;
+
+  if (existsSync(universalPath) && existsSync(universalStamp)) {
+    const stamp = readFileSync(universalStamp, "utf8").trim();
+    if (stamp === expectedStamp) {
+      console.log(`[fetch-ctxd] up-to-date: ctxd-universal-apple-darwin (v${CTXD_VERSION})`);
+      return;
+    }
+  }
+
+  console.log(`[fetch-ctxd] lipo -create -> ${universalPath}`);
+  run("lipo", ["-create", "-output", universalPath, armPath, x86Path]);
+  chmodSync(universalPath, 0o755);
+  writeFileSync(universalStamp, `${expectedStamp}\n`);
+  console.log(`[fetch-ctxd] installed universal binary -> ${universalPath}`);
 }
 
 async function main(): Promise<void> {
