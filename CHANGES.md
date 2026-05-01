@@ -2,6 +2,35 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
+
+## v0.2.9 — Codex CLI detection fix for nvm/asdf installs (2026-05-01)                                                               
+                                                                                                                                       
+  Patch on top of v0.2.8. Fixes a hard block for users whose Codex CLI is                                                              
+  installed via a Node version manager (nvm, asdf, mise, fnm).                                                                         
+                                                                                                                                       
+  - `fix(cli)`: Codex installed via nvm/asdf/mise has a `#!/usr/bin/env                                                                
+    node` shebang. The previous fix (v0.2.6, commit 08068b3) resolved                                                                  
+    Codex's absolute path correctly via the user's login shell, but the                                                                
+    spawned `sh -c 'exec /…/codex …'` wrapper inherited the GUI app's                                                                  
+    minimal Launch Services PATH — so `env node` failed 127 with "No                                                                   
+    such file" and `classifyCliError` mapped that stderr to                                                                            
+    `not_installed`. Settings showed "Codex CLI not installed" even                                                                    
+    right after `npm install -g @openai/codex`.                                                                                        
+    - `resolve_binary` (Rust) now returns `{ path, env_path }`,                                                                        
+      capturing the user's `$PATH` from the same login-shell call.                                                                     
+      Marker-delimited parsing (`__KEEPR_BIN__=`, `__KEEPR_ENV_PATH__=`)                                                               
+      so rc-file noise (oh-my-zsh, direnv, starship) can't corrupt                                                                     
+      output.                                                                                                                          
+    - `runCliShellWrapped` (TS) prepends `export PATH='<envPath>':"$PATH"`                                                             
+      inside the wrapper script before exec — extending, not replacing,                                                                
+      so a partial envPath can never strip `/usr/bin`. Inside-script                                                                   
+      export over `opts.env` so HOME/USER/TERM/locale are preserved.                                                                   
+    - Settings override path (`validate_binary_path`) returns                                                                          
+      `envPath:""` — no export emitted, inherited PATH preserved.                                                                      
+    - 3 new tests cover env propagation, defensive empty-envPath, and                                                                  
+      the override path.                  
+
+
 ## v0.2.8 — Codex onboarding fix (2026-05-01)
 
 Patch on top of v0.2.7. Fixes a hard block for users picking the
