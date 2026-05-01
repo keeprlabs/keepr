@@ -2,6 +2,25 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
+## v0.2.8 — Codex onboarding fix (2026-05-01)
+
+Patch on top of v0.2.7. Fixes a hard block for users picking the
+Codex CLI provider during onboarding.
+
+- `fix(onboarding)`: the codex CLI was added to the TS `Provider` union
+  but the SQLite `integrations` CHECK constraint never gained `'codex'`
+  (last widened in migration v8 for GitLab). After a successful codex
+  probe, `upsertIntegration("codex", {})` hit a CHECK violation; the
+  throw escaped the un-try/catched CLI branch in `StepLLM.test()`,
+  leaving `state="testing"` forever, the "Detect & save" button stuck
+  on "Detecting…", and Continue gated.
+  - Migration v11 rebuilds `integrations` with `'codex'` in the CHECK
+    list (same table-rebuild pattern as v8 — SQLite can't `ALTER` a
+    CHECK in place).
+  - Wrapped the CLI persist step in `try/catch` so any future schema
+    mismatch surfaces as a friendly inline error instead of an
+    infinite spinner.
+
 ## v0.2.7 — ctxd memory layer (2026-05-01)
 
 Bundling [`keeprlabs/ctxd`](https://github.com/keeprlabs/ctxd) v0.3.0 as
