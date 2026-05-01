@@ -16,12 +16,6 @@
 </p>
 
 <p align="center">
-  <a href="https://api.star-history.com/svg?repos=keeprlabs/keepr&type=Date">
-    <img src="https://api.star-history.com/svg?repos=keeprlabs/keepr&type=Date" width="600" alt="Keepr star history" />
-  </a>
-</p>
-
-<p align="center">
   <a href="docs/screenshots/demo.gif">Demo</a> ·
   <a href="./plugin/">Claude Code Plugin</a> ·
   <a href="./PRIVACY.md">Privacy</a> ·
