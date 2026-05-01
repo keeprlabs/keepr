@@ -2,7 +2,7 @@
 
 Recorded while building v1 so maintainers can audit what I changed and why.
 
-## v0.2.7 — ctxd memory layer (Unreleased)
+## v0.2.7 — ctxd memory layer (2026-05-01)
 
 Bundling [`keeprlabs/ctxd`](https://github.com/keeprlabs/ctxd) v0.3.0 as
 Keepr's default memory substrate. Side-by-side with the existing markdown
@@ -10,6 +10,29 @@ store (no migration in v0.2.7) — see `tasks/ctxd-integration.md`.
 
 > NOTE: `v0.2.6` on `main` was the auto-updater release (Tauri v2 updater
 > plugin). This is a separate, independent milestone. Both ship.
+
+### Post-PR-11 fixes (rolled into the release)
+
+- `fix(ctxd)`: register memory_write/read/query/subjects/related/subscribe
+  in `tauri::generate_handler!` (PR 2 defined them but never wired them
+  up; every JS-side invoke was failing with Tauri "command not registered"
+  and dual-writes silently dropped on the floor). This is the bug that
+  kept `ctxd.db` empty after demo runs.
+- `fix(ctxd)`: sanitize subject path segments to match ctxd's grammar
+  (`[A-Za-z0-9./_-]`). Slack `${channel}:${ts}`, github `${repo}#${n}`,
+  gitlab `${proj}!${n}` were rejected by the daemon's `Subject::new`.
+  Apply universal `[^A-Za-z0-9._-] → _` mapping in `evidenceSubjectFor`
+  and tighten `evidenceSubject`'s validation to mirror ctxd's rules so
+  future regressions fail in tests, not at write-time.
+- `feat(demo)`: wire `dualWriteEvidenceBatch` into the demo pipeline so
+  demo users see populated MemorySearch / Cmd+K results after a pulse
+  (session/person/topic events were already covered via `writeMemory`'s
+  auto-fired `dualWriteSession`).
+- `ci`: fetch the ctxd sidecar before `cargo check` in the CI job —
+  Tauri's `build.rs` validates `externalBin` paths and was failing on
+  CI because `beforeBuildCommand` only fires for `tauri dev/build`.
+- `docs`: refresh README + topology diagram for the v0.2.7 surfaces;
+  add Star History chart at the bottom.
 
 ### PR 11 — `feat/onboarding-reingest-banner`
 
