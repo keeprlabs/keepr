@@ -137,14 +137,22 @@ export function StepLLM({ onNext }: { onNext: () => void }) {
         setError(reasonCopy);
         return;
       }
-      // Probe succeeded — persist and record the integration.
-      await upsertIntegration(provider, {});
-      await setConfig({
-        llm_provider: provider,
-        synthesis_model: p.defaultSynthesisModel,
-        classifier_model: p.defaultClassifierModel,
-      });
-      setState("ok");
+      // Probe succeeded — persist and record the integration. Wrap the
+      // SQL writes so a schema mismatch (e.g. provider missing from the
+      // integrations CHECK constraint) surfaces inline instead of
+      // leaving the button stuck on "Detecting…".
+      try {
+        await upsertIntegration(provider, {});
+        await setConfig({
+          llm_provider: provider,
+          synthesis_model: p.defaultSynthesisModel,
+          classifier_model: p.defaultClassifierModel,
+        });
+        setState("ok");
+      } catch (e: any) {
+        setState("err");
+        setError(friendlyProviderError(e, provider));
+      }
       return;
     }
 

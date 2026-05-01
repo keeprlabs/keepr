@@ -300,6 +300,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_ctxd_uuid
   ON team_members(ctxd_uuid) WHERE ctxd_uuid IS NOT NULL;
 "#,
         },
+        Migration {
+            version: 11,
+            description: "codex_provider",
+            kind: MigrationKind::Up,
+            // The codex CLI provider was added to the TS Provider type but
+            // the integrations CHECK constraint wasn't widened — so
+            // upsertIntegration("codex", {}) failed with a CHECK violation
+            // after a successful codex probe, leaving the onboarding
+            // "Detect & save" button stuck and the user without a Continue
+            // button. Same table-rebuild pattern as v8.
+            sql: r#"
+CREATE TABLE integrations_v11 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL CHECK (provider IN ('slack','github','gitlab','jira','linear','anthropic','openai','openrouter','custom','claude-code','codex')),
+  metadata TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO integrations_v11 SELECT * FROM integrations;
+DROP TABLE integrations;
+ALTER TABLE integrations_v11 RENAME TO integrations;
+"#,
+        },
     ]
 }
 
