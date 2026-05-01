@@ -356,18 +356,41 @@ interface RunCliOpts {
   /** Per-line callback for stdout (used for NDJSON event streams). The raw
    *  stdout is also captured in the return value. */
   onStdoutLine?: (line: string) => void;
+  /** When set on `runCliShellWrapped`, exported as `PATH=<envPath>:$PATH`
+   *  inside the shell wrapper before exec. Lets Node-shebang CLIs (Codex)
+   *  find `node` from the user's nvm/asdf/mise install when the GUI app's
+   *  Launch Services PATH doesn't see it. Ignored by `runCli` (no shell
+   *  wrapper to inject into). */
+  envPath?: string;
 }
 
 // ---- Absolute-path resolution for CLI binaries -----------------------------
 
-/** Cache of resolved absolute paths, keyed by binary name. macOS GUI apps
- *  inherit a minimal PATH from Launch Services, so `sh -c 'exec codex'` fails
- *  with "codex: not found" even when the binary works in Terminal. The Rust
- *  command resolves via the user's login+interactive shell so we get the same
- *  PATH the user sees in Terminal, then we cache the absolute path and use it
- *  directly — PATH stops mattering. Same lifetime as _codexProbeCache; cleared
- *  by invalidateCodexProbe / invalidateClaudeProbe. */
-const _binPathCache = new Map<string, string>();
+/** Resolved binary descriptor: absolute path AND the user's shell `$PATH`.
+ *  We need PATH because Codex (and other npm-installed Node CLIs) ship with
+ *  a `#!/usr/bin/env node` shebang — and `env` looks up `node` on the PATH
+ *  of the spawned process, not on the binary's own path. nvm/asdf/mise put
+ *  node in user-specific dirs that aren't on the GUI app's minimal Launch
+ *  Services PATH, so spawn fails with "env: node: No such file" and the old
+ *  classifier showed "Codex CLI not installed" — even though codex was
+ *  installed. */
+interface ResolvedBinary {
+  path: string;
+  /** User's shell `$PATH` from the same login shell that resolved `path`.
+   *  Empty when resolution came from a source that doesn't see PATH (e.g.
+   *  the Settings override path through validate_binary_path). */
+  envPath: string;
+}
+
+/** Cache of resolved absolute paths + envPath, keyed by binary name. macOS
+ *  GUI apps inherit a minimal PATH from Launch Services, so `sh -c 'exec
+ *  codex'` fails with "codex: not found" — and even after we resolve the
+ *  absolute path, Node-shebang scripts can't find `node` without PATH. The
+ *  Rust command resolves via the user's login+interactive shell so we get
+ *  the same PATH the user sees in Terminal; we cache and pass it through
+ *  to subsequent spawns. Same lifetime as _codexProbeCache; cleared by
+ *  invalidateCodexProbe / invalidateClaudeProbe. */
+const _binResolveCache = new Map<string, ResolvedBinary>();
 
 /** Session-level guard: have we already loaded the user's saved CLI-path
  *  override from app_config for this binary name? Avoids hitting SQLite
@@ -419,7 +442,7 @@ class AppOnlyNoCliError extends Error {
  *    - NotInPathError: shell can't find the CLI AND no .app bundle present.
  *      Either truly not installed or hidden in some non-standard location.
  *      Surface as the install-or-symlink message. */
-async function resolveBinary(name: string): Promise<string> {
+async function resolveBinary(name: string): Promise<ResolvedBinary> {
   // 0. User override from Settings — checked once per session per name.
   //    A broken/stale override falls through to shell + bundle detection
   //    (rather than throwing) so a moved binary auto-recovers via PATH.
@@ -435,8 +458,14 @@ async function resolveBinary(name: string): Promise<string> {
             path: userPath,
           });
           if (validated) {
-            _binPathCache.set(name, validated);
-            return validated;
+            // Override path skips shell, so we don't have the user's PATH.
+            // Empty envPath means the spawn falls back to the GUI's minimal
+            // PATH — which is fine for self-contained binaries (the user
+            // chose this path explicitly), and for Node shebangs the override
+            // path is the user's escape hatch when auto-detect fails anyway.
+            const resolved: ResolvedBinary = { path: validated, envPath: "" };
+            _binResolveCache.set(name, resolved);
+            return resolved;
           }
           // userPath is stored but no longer points at a valid executable.
           // Fall through to auto-detect. The probe surfaces this state via
@@ -450,20 +479,24 @@ async function resolveBinary(name: string): Promise<string> {
     }
   }
 
-  const cached = _binPathCache.get(name);
+  const cached = _binResolveCache.get(name);
   if (cached) return cached;
-  let path: string | null = null;
+  let raw: unknown = null;
   try {
-    path = await invoke<string | null>("resolve_binary", { name });
+    raw = await invoke<unknown>("resolve_binary", { name });
   } catch {
     // Tauri context not available (test env without invoke mock, or invoke
     // command failed to register). Fall through to the bare-name fallback —
     // production builds always have invoke; tests mock it explicitly.
-    return name;
+    return { path: name, envPath: "" };
   }
-  if (path) {
-    _binPathCache.set(name, path);
-    return path;
+  // Rust returns Option<ResolvedBinary> = { path, env_path }. Older test
+  // mocks return a bare string; tolerate both so we don't have to mass-
+  // edit every test fixture and still ship the env propagation in prod.
+  const resolved = normalizeResolvedBinary(raw);
+  if (resolved) {
+    _binResolveCache.set(name, resolved);
+    return resolved;
   }
   // Shell couldn't resolve — check the known .app bundle locations before
   // declaring it not-installed. If the user has the desktop app, we want to
@@ -478,19 +511,47 @@ async function resolveBinary(name: string): Promise<string> {
   throw new NotInPathError(name);
 }
 
+/** Coerce the `resolve_binary` IPC return into our ResolvedBinary shape, or
+ *  null if the Rust side returned None / something unparseable. Accepts the
+ *  new struct shape (`{ path, env_path }` — Rust serde snake_case) and a
+ *  bare string (legacy test fixtures only). One canonical contract. */
+function normalizeResolvedBinary(raw: unknown): ResolvedBinary | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    return raw ? { path: raw, envPath: "" } : null;
+  }
+  if (typeof raw === "object") {
+    const r = raw as { path?: unknown; env_path?: unknown };
+    const path = typeof r.path === "string" ? r.path : "";
+    if (!path) return null;
+    const envPath = typeof r.env_path === "string" ? r.env_path : "";
+    return { path, envPath };
+  }
+  return null;
+}
+
 /** Drop the resolved-path cache for a single binary AND the session-level
  *  override-checked flag. Called from invalidateCodexProbe /
  *  invalidateClaudeProbe so the next probe re-resolves after the user
  *  installs the CLI, moves it into PATH, or saves a new override path
  *  via Settings. */
 function invalidateBinaryPath(name: string): void {
-  _binPathCache.delete(name);
+  _binResolveCache.delete(name);
   _overrideCheckedThisSession.delete(name);
 }
 
-/** Test-only: read the resolved-path cache without triggering a resolve. */
+/** Test-only: read the resolved-path cache without triggering a resolve.
+ *  Returns just the path for backward-compat with existing tests; tests
+ *  that need to inspect envPath should use `_peekBinaryResolveCache`. */
 export function _peekBinaryPathCache(name: string): string | null {
-  return _binPathCache.get(name) ?? null;
+  return _binResolveCache.get(name)?.path ?? null;
+}
+
+/** Test-only: read the full ResolvedBinary cache entry. */
+export function _peekBinaryResolveCache(
+  name: string,
+): { path: string; envPath: string } | null {
+  return _binResolveCache.get(name) ?? null;
 }
 
 /** POSIX shell single-quote any string. Wraps the input in `'...'` and
@@ -516,14 +577,31 @@ function shQuote(s: string): string {
  *  - `< /dev/null` gives the CLI an immediate EOF on stdin so it stops
  *    waiting for input.
  *
- *  Returns the same shape as runCli, just spawned through sh. */
+ *  Returns the same shape as runCli, just spawned through sh.
+ *
+ *  opts.envPath: when set, prepended to PATH inside the shell wrapper before
+ *  exec, so child processes (notably `env node` for Codex's Node-shebang
+ *  script) can find their dependencies. Extends rather than replaces — that
+ *  way a partial envPath (or one that drops some system dirs) can't silently
+ *  strip /usr/bin or /bin from the spawned child's lookup. We export inside
+ *  the script rather than passing via `opts.env` because the Tauri shell
+ *  plugin's `env` option REPLACES the process env on Unix, which would drop
+ *  HOME/USER/TERM/locale and break CLIs that expect a normal env. */
 async function runCliShellWrapped(
   program: string,
   args: string[],
   opts: RunCliOpts = {}
 ): Promise<RunCliResult> {
-  const cmdLine = "exec " + [program, ...args].map(shQuote).join(" ") + " < /dev/null";
-  return runCli("sh", ["-c", cmdLine], opts);
+  const { envPath, ...runOpts } = opts;
+  const exportPath = envPath
+    ? `export PATH=${shQuote(envPath)}:"$PATH"; `
+    : "";
+  const cmdLine =
+    exportPath +
+    "exec " +
+    [program, ...args].map(shQuote).join(" ") +
+    " < /dev/null";
+  return runCli("sh", ["-c", cmdLine], runOpts);
 }
 
 interface RunCliResult {
@@ -688,7 +766,7 @@ const claudeCode: LLMProvider = {
     }
     args.push(userContent);
 
-    const claudeBin = await resolveBinary("claude");
+    const claude = await resolveBinary("claude");
     // Wrapped through `sh -c 'exec <path> ... < /dev/null'` for two reasons:
     //   1. Tauri's shell:allow-spawn capability matches by program name. The
     //      allowlist whitelists "claude" — passing /opt/homebrew/bin/claude
@@ -696,9 +774,10 @@ const claudeCode: LLMProvider = {
     //      means Tauri only sees `sh` (allowed); the absolute path is just
     //      a string inside the script, never matched against the allowlist.
     //   2. Symmetry with codex.complete (already wrapped for stdin-EOF).
-    const result = await runCliShellWrapped(claudeBin, args, {
+    const result = await runCliShellWrapped(claude.path, args, {
       env: CLAUDE_SPAWN_ENV,
       signal: opts.signal,
+      envPath: claude.envPath,
     });
     if (result.code !== 0) {
       const msg = result.stderr || result.stdout || "claude exited with code " + result.code;
@@ -864,9 +943,10 @@ const codex: LLMProvider = {
       // Wrapped in sh so stdin is closed (`< /dev/null`) — codex would
       // otherwise block forever waiting for stdin EOF. See runCliShellWrapped.
       // Absolute path so the spawn doesn't depend on the GUI app's minimal PATH.
-      const codexBin = await resolveBinary("codex");
-      const result = await runCliShellWrapped(codexBin, args, {
+      const codex = await resolveBinary("codex");
+      const result = await runCliShellWrapped(codex.path, args, {
         signal: opts.signal,
+        envPath: codex.envPath,
         onStdoutLine: (line) => {
           // Tauri may emit a chunk with embedded newlines; split on \n so the
           // NDJSON parser sees one event per entry.
@@ -937,9 +1017,9 @@ export async function probeClaudeCode(force = false): Promise<ProbeResult> {
   const promise = (async (): Promise<ProbeResult> => {
     const args = ["--print", "--model", "haiku", "Reply with just: ok"];
     let result: RunCliResult;
-    let claudeBin: string;
+    let claude: ResolvedBinary;
     try {
-      claudeBin = await resolveBinary("claude");
+      claude = await resolveBinary("claude");
     } catch (e: any) {
       const raw = String(e?.message || e);
       let r: ProbeResult;
@@ -956,7 +1036,10 @@ export async function probeClaudeCode(force = false): Promise<ProbeResult> {
     try {
       // sh-wrapped so an absolute path doesn't trip the shell:allow-spawn
       // capability check. See claudeCode.complete for the full reasoning.
-      result = await runCliShellWrapped(claudeBin, args, { env: CLAUDE_SPAWN_ENV });
+      result = await runCliShellWrapped(claude.path, args, {
+        env: CLAUDE_SPAWN_ENV,
+        envPath: claude.envPath,
+      });
     } catch (e: any) {
       const r: ProbeResult = classifyCliError(String(e?.message || e), "claude");
       _claudeProbeCache = r;
@@ -1022,9 +1105,9 @@ export async function probeCodex(force = false): Promise<ProbeResult> {
         "Reply with just: ok",
       ];
       let result: RunCliResult;
-      let codexBin: string;
+      let codex: ResolvedBinary;
       try {
-        codexBin = await resolveBinary("codex");
+        codex = await resolveBinary("codex");
       } catch (e: any) {
         const raw = String(e?.message || e);
         let r: ProbeResult;
@@ -1040,8 +1123,13 @@ export async function probeCodex(force = false): Promise<ProbeResult> {
       }
       try {
         // Same sh-wrapper trick as codex.complete: codex would hang waiting
-        // for stdin EOF on a Tauri-spawned pipe.
-        result = await runCliShellWrapped(codexBin, args);
+        // for stdin EOF on a Tauri-spawned pipe. envPath threaded through so
+        // codex's `#!/usr/bin/env node` shebang can find node — without it,
+        // nvm/asdf/mise installs of codex fail with "env: node: No such file"
+        // and the classifier surfaces "Codex CLI not installed" misleadingly.
+        result = await runCliShellWrapped(codex.path, args, {
+          envPath: codex.envPath,
+        });
       } catch (e: any) {
         // runCli throws when the spawn itself fails (binary missing), so the
         // error message carries "command not found" or similar.

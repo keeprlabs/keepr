@@ -685,6 +685,69 @@ describe("resolveBinary [regression: GUI app PATH not_in_path bug]", () => {
     expect(cmdLine).toMatch(/< \/dev\/null$/);
   });
 
+  it("exports user shell PATH inside the wrapper script so Node-shebang CLIs find `node`", async () => {
+    // Regression: nvm/asdf/mise install codex with shebang `#!/usr/bin/env
+    // node`. The GUI app's Launch Services PATH doesn't see the user's nvm
+    // node directory, so `env node` fails 127 with "No such file or
+    // directory" — and classifyCliError flagged the probe as "not_installed".
+    // Fix: pass the user's shell $PATH (captured by `resolve_binary` in the
+    // same login-shell call) and prepend an `export PATH=...` to the wrapper
+    // so child shebangs resolve.
+    const userPath = "/Users/me/.nvm/versions/node/v22.22.0/bin:/opt/homebrew/bin:/usr/bin:/bin";
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary" && args?.name === "codex") {
+        return {
+          path: "/Users/me/.nvm/versions/node/v22.22.0/bin/codex",
+          env_path: userPath,
+        };
+      }
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    const fs = await import("@tauri-apps/plugin-fs");
+    (fs.readTextFile as any).mockResolvedValueOnce("ok");
+
+    await PROVIDERS.codex.complete({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "x" }],
+    });
+
+    const cmdLine = FakeCommand.lastInstance?.args?.[1] || "";
+    // PATH export must come before exec so the shebang lookup uses it. We
+    // EXTEND `$PATH` rather than replace it — that way a partial envPath
+    // can't silently strip /usr/bin from the spawned child's lookup.
+    expect(cmdLine).toMatch(/^export PATH='[^']+':"\$PATH"; exec /);
+    expect(cmdLine).toContain(userPath);
+    // And the actual codex invocation still uses the absolute path.
+    expect(cmdLine).toContain("'/Users/me/.nvm/versions/node/v22.22.0/bin/codex'");
+    expect(cmdLine).toMatch(/< \/dev\/null$/);
+  });
+
+  it("omits PATH export when envPath is empty (resolve_binary returned no PATH)", async () => {
+    // Defensive: if the Rust side ever returns env_path:"" (e.g. login shell
+    // failed to print PATH), the wrapper must NOT emit `export PATH=''`
+    // because that would clobber the inherited PATH and break /usr/bin
+    // lookups for everything spawned afterward.
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "resolve_binary" && args?.name === "codex") {
+        return { path: "/opt/homebrew/bin/codex", env_path: "" };
+      }
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    const fs = await import("@tauri-apps/plugin-fs");
+    (fs.readTextFile as any).mockResolvedValueOnce("ok");
+
+    await PROVIDERS.codex.complete({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "x" }],
+    });
+
+    const cmdLine = FakeCommand.lastInstance?.args?.[1] || "";
+    expect(cmdLine).not.toContain("export PATH");
+    expect(cmdLine).toMatch(/^exec '\/opt\/homebrew\/bin\/codex' /);
+  });
+
   it("caches the resolved path — second probe doesn't re-invoke resolve_binary", async () => {
     invokeMock.mockImplementation(async (cmd: string, args?: any) => {
       if (cmd === "resolve_binary") return `/usr/local/bin/${args?.name}`;
@@ -871,6 +934,37 @@ describe("resolveBinary — Settings path override", () => {
     expect(cmdLine).toMatch(/^exec '\/Users\/me\/dev\/codex-fork\/codex' /);
     // Anti-regression: shell resolution must NOT have been used.
     expect(cmdLine).not.toMatch(/'\/usr\/bin\/codex'/);
+  });
+
+  it("override path emits no `export PATH` (override doesn't capture user shell PATH)", async () => {
+    // The override path goes through validate_binary_path, which is pure
+    // file-stat validation — no login shell, no PATH capture. envPath is
+    // empty in that case, so the wrapper must NOT emit an `export PATH`
+    // line that would clobber the inherited PATH for everything spawned
+    // afterward (breaking /usr/bin lookups). User chose the override
+    // explicitly; if their binary needs PATH for a shebang, that's on them.
+    getConfigMock.mockImplementation(async () => ({
+      codex_cli_path: "/opt/myco/bin/codex",
+      claude_code_cli_path: "",
+    }));
+    invokeMock.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === "validate_binary_path") {
+        return args?.path === "/opt/myco/bin/codex" ? "/opt/myco/bin/codex" : null;
+      }
+      return null;
+    });
+    FakeCommand.plan = { stdout: [], exitCode: 0 };
+    const fs = await import("@tauri-apps/plugin-fs");
+    (fs.readTextFile as any).mockResolvedValueOnce("ok");
+
+    await PROVIDERS.codex.complete({
+      model: "gpt-5.4",
+      messages: [{ role: "user", content: "x" }],
+    });
+
+    const cmdLine = FakeCommand.lastInstance?.args?.[1] || "";
+    expect(cmdLine).not.toContain("export PATH");
+    expect(cmdLine).toMatch(/^exec '\/opt\/myco\/bin\/codex' /);
   });
 
   it("broken override falls through to shell resolution (NOT throw)", async () => {

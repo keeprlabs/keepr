@@ -18,6 +18,21 @@ use std::process::Command;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
+use serde::Serialize;
+
+/// Resolved binary plus the user's shell `$PATH` so spawn callers can pass it
+/// through to subprocess env. Without `env_path`, npm-installed CLIs whose
+/// shebang is `#!/usr/bin/env node` fail with "env: node: No such file" when
+/// the GUI app's minimal Launch Services PATH doesn't include the user's
+/// node directory (nvm, asdf, mise, fnm, custom prefix). Capturing PATH from
+/// the same login-shell call that resolved the binary keeps us to a single
+/// expensive shell spawn per binary.
+#[derive(Debug, Serialize, Clone)]
+pub struct ResolvedBinary {
+    pub path: String,
+    pub env_path: String,
+}
+
 /// Reject anything that isn't a plain CLI name. Defense-in-depth — the only
 /// caller is the JS layer, which passes literal "codex" / "claude" today, but
 /// if a future caller passes user input we don't want shell injection.
@@ -29,8 +44,16 @@ fn is_safe_bin_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
+/// Markers we emit to delimit our two output values from any rc-file noise
+/// (oh-my-zsh update notices, direnv reload messages, starship transient
+/// prompts, etc.). Marker-delimiting both fields means parsing is robust
+/// against any line of stdout we didn't print ourselves — we just match
+/// the prefix and ignore everything else.
+const PATH_MARKER: &str = "__KEEPR_ENV_PATH__=";
+const BIN_MARKER: &str = "__KEEPR_BIN__=";
+
 #[tauri::command]
-pub fn resolve_binary(name: String) -> Option<String> {
+pub fn resolve_binary(name: String) -> Option<ResolvedBinary> {
     if !is_safe_bin_name(&name) {
         return None;
     }
@@ -45,7 +68,19 @@ pub fn resolve_binary(name: String) -> Option<String> {
     // -i: interactive shell (sources .zshrc / .bashrc)
     // `command -v <name>` is POSIX-portable across zsh/bash/dash. `2>/dev/null`
     // suppresses the rc-file noise some users emit on every shell init.
-    let script = format!("command -v {} 2>/dev/null", name);
+    //
+    // We marker-delimit both outputs so the parser doesn't depend on output
+    // ordering (rc files can print on prompt render, exit hooks, etc.).
+    // printf with markers as DATA arguments (not embedded in the format
+    // string) — defense-in-depth so a marker change can never accidentally
+    // introduce a printf-format vulnerability.
+    let script = format!(
+        "printf '%s%s\\n' '{path_marker}' \"$PATH\"; \
+         printf '%s%s\\n' '{bin_marker}' \"$(command -v {name} 2>/dev/null)\"",
+        path_marker = PATH_MARKER,
+        bin_marker = BIN_MARKER,
+        name = name,
+    );
 
     let output = Command::new(&shell)
         .args(["-lic", &script])
@@ -53,13 +88,27 @@ pub fn resolve_binary(name: String) -> Option<String> {
         .ok()?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let path = stdout.lines().last()?.trim().to_string();
 
+    // Parse: pull each marker prefix, ignore anything else. Position-
+    // independent — rc-file noise interleaved with our prints is dropped.
+    let mut env_path = String::new();
+    let mut path = String::new();
+    for line in stdout.lines() {
+        if let Some(rest) = line.strip_prefix(PATH_MARKER) {
+            env_path = rest.trim().to_string();
+        } else if let Some(rest) = line.strip_prefix(BIN_MARKER) {
+            path = rest.trim().to_string();
+        }
+    }
+
+    // Conservative rejection: paths with whitespace or that are empty mean
+    // either `command -v` returned nothing, or the shell printed an alias /
+    // function definition / multi-word string. None of those are usable.
     if path.is_empty() || path.contains(char::is_whitespace) {
         return None;
     }
 
-    Some(path)
+    Some(ResolvedBinary { path, env_path })
 }
 
 /// Detect a macOS .app bundle for a given CLI provider name. Used as a
@@ -242,9 +291,31 @@ mod tests {
         // by name via this very mechanism. Smoke test that the helper at least
         // executes and returns *something* plausible for a guaranteed binary.
         let result = resolve_binary("sh".to_string());
-        if let Some(path) = result {
-            assert!(path.starts_with('/'), "path should be absolute: {}", path);
-            assert!(path.ends_with("sh") || path.ends_with("dash"), "got: {}", path);
+        if let Some(resolved) = result {
+            assert!(
+                resolved.path.starts_with('/'),
+                "path should be absolute: {}",
+                resolved.path
+            );
+            assert!(
+                resolved.path.ends_with("sh") || resolved.path.ends_with("dash"),
+                "got: {}",
+                resolved.path
+            );
+            // env_path should be non-empty and contain at least one common
+            // system bin directory. We can't assert on user-specific paths
+            // (nvm, homebrew) because CI runners vary, but every Unix has
+            // /bin or /usr/bin.
+            assert!(
+                !resolved.env_path.is_empty(),
+                "env_path should be populated: {:?}",
+                resolved.env_path
+            );
+            assert!(
+                resolved.env_path.contains("/bin") || resolved.env_path.contains("/usr"),
+                "env_path missing common system dirs: {:?}",
+                resolved.env_path
+            );
         }
         // If None, the test environment doesn't have an interactive shell at
         // all (rare CI sandbox) — not a failure of the helper itself.
