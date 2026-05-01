@@ -123,29 +123,18 @@ async function fetchSingleTarget(triple: ReleaseTriple): Promise<void> {
 }
 
 async function fetchUniversalAppleDarwin(): Promise<void> {
-  const targetPath = join(BIN_DIR, "ctxd-universal-apple-darwin");
-  if (isAlreadyFetched(targetPath, "aarch64-apple-darwin")) {
-    // Universal stamp piggybacks on aarch64 marker; see writeStamp call below.
-    console.log(`[fetch-ctxd] up-to-date: ctxd-universal-apple-darwin (v${CTXD_VERSION})`);
-    return;
-  }
-
+  // Tauri's universal-apple-darwin target compiles each architecture
+  // separately and lipos the resulting .app bundles itself. Each
+  // per-arch compile looks up `binaries/ctxd-{triple}` via the
+  // externalBin manifest — so we install both per-arch binaries and
+  // let Tauri's bundler do the lipo. Producing our own pre-merged
+  // `ctxd-universal-apple-darwin` would leave the per-arch lookups
+  // failing with "resource path doesn't exist".
   if (process.platform !== "darwin") {
-    throw new Error("CTXD_TARGET=universal-apple-darwin requires running on macOS (lipo)");
+    throw new Error("CTXD_TARGET=universal-apple-darwin requires running on macOS");
   }
-
-  const workDir = join(tmpdir(), `keepr-fetch-ctxd-${process.pid}`);
-  mkdirSync(workDir, { recursive: true });
-  mkdirSync(BIN_DIR, { recursive: true });
-
-  const armBin = await downloadAndVerify("aarch64-apple-darwin", workDir);
-  const x86Bin = await downloadAndVerify("x86_64-apple-darwin", workDir);
-
-  console.log(`[fetch-ctxd] lipo -create -> ${targetPath}`);
-  run("lipo", ["-create", "-output", targetPath, armBin, x86Bin]);
-  chmodSync(targetPath, 0o755);
-  writeStamp(targetPath, "aarch64-apple-darwin");
-  console.log(`[fetch-ctxd] installed universal binary -> ${targetPath}`);
+  await fetchSingleTarget("aarch64-apple-darwin");
+  await fetchSingleTarget("x86_64-apple-darwin");
 }
 
 async function main(): Promise<void> {
